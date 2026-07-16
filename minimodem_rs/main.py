@@ -97,6 +97,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     framer = _build_framer(parsed_arguments)
     direction_flag = "--tx" if parsed_arguments.direction == "tx" else "--rx"
+    if parsed_arguments.direction == "rx" and not any(a == "--quiet" or a.startswith("--quiet=") for a in minimodem_passthrough):
+        minimodem_passthrough = ["--quiet", *minimodem_passthrough]
     minimodem_argv = build_minimodem_argv(
         direction=direction_flag,
         passthrough_args=minimodem_passthrough,
