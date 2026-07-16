@@ -82,12 +82,12 @@ jobs:
         run: pyinstaller --onefile --name minimodem-rs --collect-submodules minimodem_rs minimodem_rs/main.py
 
       - name: Make static binary
-        run: staticx dist/minimodem-rs dist/minimodem-rs-linux-x86_64
+        run: staticx dist/minimodem-rs dist/minimodem-rs-${{ steps.ver.outputs.version }}-linux-x86_64
 
       - name: Upload to release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/minimodem-rs-linux-x86_64
+          files: dist/minimodem-rs-${{ steps.ver.outputs.version }}-linux-x86_64
 
   build-deb:
     name: Build Ubuntu .deb
