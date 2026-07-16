@@ -1,0 +1,55 @@
+[tool.poetry]
+name = "minimodem-rs"
+version = "0.0.0"
+description = "Reed-Solomon framing wrapper around the minimodem CLI, with tx/rx subcommands and full minimodem option passthrough."
+authors = ["Ivica"]
+packages = [{ include = "minimodem_rs" }]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+reedsolo = "^1.7.0"
+
+[tool.poetry.group.dev.dependencies]
+black = "26.3.1"
+isort = "8.0.1"
+pre-commit = "4.6.0"
+pytest = "9.0.3"
+mypy = "^2.1.0"
+pylint = "^4.0.5"
+setuptools = "82.0.1"
+
+[tool.poetry.scripts]
+minimodem-rs = "minimodem_rs.main:main"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 120
+target-version = ["py310"]
+include = '\.pyi?$'
+exclude = '''
+/(
+  \.git
+  | \.venv
+  | build
+  | venv
+  | dist
+)/
+'''
+
+[tool.isort]
+profile = "black"
+line_length = 120
+multi_line_output = 3
+include_trailing_comma = true
+
+[tool.mypy]
+python_version = "3.10"
+files = ["minimodem_rs", "tests"]
+ignore_missing_imports = true
+check_untyped_defs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+show_error_codes = true
