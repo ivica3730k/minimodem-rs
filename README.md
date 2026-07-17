@@ -160,9 +160,25 @@ Baseline SNR performance measured in a 3 kHz reference bandwidth:
 | 300 baud, no RS, no repeat | −3 dB | 21 bytes | ~1 s | modem baseline |
 | 30 baud, no RS, no repeat | −15 dB | 21 bytes | ~5 s | slower symbols = more Es/N0 |
 | 30 baud, RS(24,16), 3× repeat | **−17 dB** | 15 chars | ~28 s | weak-signal preset |
+| 100 baud, RS(174,142), 1× repeat | **−8 dB** | ~140 chars | ~16 s | paragraph, single copy |
+| 100 baud, RS(174,142), 2× repeat | **−10 dB** | ~140 chars | ~31 s | paragraph, 2× repeat |
 
-For reference, the Shannon limit at 30 bit/s in 3 kHz is −21.6 dB. LDPC in
-place of Viterbi would close another 2–4 dB of the gap.
+For reference, the Shannon limit at 30 bit/s in 3 kHz is −21.6 dB; at 300 bit/s
+it's −11.6 dB. LDPC in place of Viterbi would close another 2–4 dB of that
+gap. Ten times more information (140 vs 15 chars) costs ~10 dB of SNR margin;
+that's Shannon, not the modem.
+
+## Baud rate range
+
+The same modem code runs from **45 to 700 baud** in a 3 kHz SSB channel with
+no config changes other than ``--baud`` (which auto-adjusts the tone spacing).
+Above 700 baud the 4-FSK tone stack overflows the SSB passband — switch to a
+wider channel or a lower-order modulation (BFSK) for that regime.
+
+Clock-drift tolerance: 100 ppm soundcard mismatch decodes fine at every tested
+baud (45, 100, 300, 500, 700) for the short-message preset. Longer packets
+(more than ~2000 symbols) may need drift correction, which is currently a
+planned follow-up.
 
 ## Install
 
@@ -203,6 +219,18 @@ echo -n "HELLO OM 73 DE!" | \
   poetry run weaklink-modem tx $COMMON --wav /tmp/weak.wav
 
 poetry run weaklink-modem rx $COMMON --wav /tmp/weak.wav --length 15
+```
+
+Paragraph mode (~140 chars in 16 s, decodes to −8 dB SNR):
+
+```bash
+COMMON="--baud 100 --tone-spacing 100 --preamble-length 64 --payload-repeats 1 \
+        --rs-data-bytes 150 --rs-parity-bytes 32"
+
+echo -n "CQ CQ CQ this is a longer paragraph over weaklink..." | \
+  poetry run weaklink-modem tx $COMMON --wav /tmp/para.wav
+
+poetry run weaklink-modem rx $COMMON --wav /tmp/para.wav --length 142
 ```
 
 Live PulseAudio (default device on Linux; CoreAudio on macOS):
