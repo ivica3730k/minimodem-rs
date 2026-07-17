@@ -201,14 +201,23 @@ import logging as _logging
 _log = _logging.getLogger("weaklink.decode")
 
 
-def decode(samples: np.ndarray, config: ModemConfig) -> bytes:
+def decode(samples: np.ndarray, config: ModemConfig, *, streaming: bool = False):
     """Decode an audio stream to bytes. Missing/undecodable blocks are dropped.
+
+    ``streaming=False`` (default): batch mode. Treats end-of-signal as an
+    implicit trailing preamble so the last group is decoded even if its
+    trailing preamble was corrupted. Returns ``bytes``.
+
+    ``streaming=True``: incremental mode. Only decodes groups fully bracketed
+    by two real preambles; the tail after the last preamble is left for the
+    next call. Returns ``(bytes, safe_cursor_samples)`` where
+    ``safe_cursor_samples`` is the sample offset of the last real preamble --
+    callers should keep this preamble in the next decode window and slice
+    everything before it off.
 
     Frequency-offset tracking is per-preamble: after the global coarse search,
     each detected sync marker gets its own fine-offset estimate, and the data
-    group that follows is demodulated using that per-group offset. This tracks
-    slow LO drift and satellite Doppler across long transmissions without any
-    external AFC.
+    group that follows is demodulated using that per-group offset.
 
     Diagnostics go through the standard ``logging`` module (logger name
     ``weaklink.decode``). Set the CLI ``--modem-debug`` flag to raise the log
@@ -217,7 +226,7 @@ def decode(samples: np.ndarray, config: ModemConfig) -> bytes:
     """
     if len(samples) == 0:
         _log.debug("empty sample buffer; nothing to decode")
-        return b""
+        return (b"", 0) if streaming else b""
     samples_per_symbol = config.waveform.samples_per_symbol
 
     samples_float = np.asarray(samples, dtype=np.float64)
@@ -249,7 +258,7 @@ def decode(samples: np.ndarray, config: ModemConfig) -> bytes:
     coarse_magnitudes = demodulate_soft(samples, config.waveform, frequency_offset_hz=coarse_offset)
     if coarse_magnitudes.shape[0] == 0:
         _log.debug("demodulator returned no symbols; sample count below one symbol")
-        return b""
+        return (b"", 0) if streaming else b""
 
     preamble = preamble_symbols()
     peaks = _find_preamble_peaks(coarse_magnitudes, preamble, config)
@@ -259,7 +268,11 @@ def decode(samples: np.ndarray, config: ModemConfig) -> bytes:
             "no preambles above threshold — either no modem signal in the buffer, "
             "SNR too low, or wrong baud/tone_spacing on RX. Check with a WAV loopback first."
         )
-        return b""
+        return (b"", 0) if streaming else b""
+    if streaming and len(peaks) < 2:
+        # Only one preamble seen -- we can't be sure the trailing preamble has
+        # arrived yet. Leave everything for the next call.
+        return b"", peaks[0] * samples_per_symbol
 
     # 3. Per-preamble fine offset. Each peak gets its own estimate so slow
     # drift across the transmission is tracked marker by marker.
@@ -287,7 +300,12 @@ def decode(samples: np.ndarray, config: ModemConfig) -> bytes:
     # 4. For each group, demodulate that region with the per-group offset if
     # it drifted significantly from the coarse baseline; otherwise reuse the
     # already-computed coarse magnitudes.
-    peaks_with_end = peaks + [coarse_magnitudes.shape[0]]
+    if streaming:
+        # Only decode groups bounded by two real preambles; the tail after the
+        # last preamble might be an incomplete group and should wait.
+        peaks_with_end = peaks
+    else:
+        peaks_with_end = peaks + [coarse_magnitudes.shape[0]]
 
     codec = config.rs_codec()
     block_length = _block_symbol_length(config)
@@ -360,6 +378,11 @@ def decode(samples: np.ndarray, config: ModemConfig) -> bytes:
         "totals: %d/%d blocks decoded, %d bytes emitted, %d RS corrections",
         total_blocks_decoded, total_blocks_attempted, len(output), total_rs_errors_corrected,
     )
+    if streaming:
+        # Advance the cursor to the last real preamble so the next call keeps
+        # that preamble as the anchor for the group that follows.
+        safe_cursor_samples = peaks[-1] * samples_per_symbol
+        return bytes(output), safe_cursor_samples
     return bytes(output)
 
 

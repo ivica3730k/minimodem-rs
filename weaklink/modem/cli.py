@@ -219,33 +219,77 @@ def _live_stream_decode(config: ModemConfig) -> int:
 
     sd = _import_sounddevice()
     sample_rate = int(round(config.waveform.sample_rate))
+
+    # Rolling audio buffer with a sample-cursor model. samples_before_buffer is
+    # how many samples we've already emitted-through and dropped from the head
+    # of the list. cursor is the absolute stream-position of the earliest
+    # sample we still need to consider for future decodes.
     chunks: list[np.ndarray] = []
+    samples_before_buffer = 0
+    cursor = 0
+
+    # Cap the retained audio at 60 s. Prevents unbounded memory growth on long
+    # rx sessions, and bounds the per-poll decode cost.
+    MAX_WINDOW_SAMPLES = 60 * sample_rate
 
     def _callback(indata, _frames, _time, _status):
         chunks.append(indata.copy())
 
     _log.info("live rx: recording from default input, polling every 100 ms")
-    already_emitted = bytearray()
+
+    def _total_buffered() -> int:
+        return samples_before_buffer + sum(chunk.size for chunk in chunks)
 
     def _try_emit_from_buffer() -> None:
+        nonlocal samples_before_buffer, cursor
         if not chunks:
             return
+        total_samples_seen = _total_buffered()
+        # Ensure we don't work with less than a few seconds of audio -- the
+        # decoder needs at least two preambles for a streaming decode.
+        if total_samples_seen - cursor < 2 * sample_rate:
+            return
+        # Concatenate current chunks. Slice to start at the cursor.
         buffer = np.concatenate(chunks).reshape(-1)
-        decoded = decode(buffer, config)
-        # Only emit if the new decode's prefix matches what we've already
-        # emitted -- protects against a re-decode that shifts earlier bytes.
-        if len(decoded) > len(already_emitted) and decoded[: len(already_emitted)] == bytes(already_emitted):
-            new_bytes = decoded[len(already_emitted):]
-            sys.stdout.buffer.write(new_bytes)
+        buffer_start_stream_pos = samples_before_buffer
+        cursor_in_buffer = max(0, cursor - buffer_start_stream_pos)
+        window = buffer[cursor_in_buffer:]
+        if window.size < sample_rate:
+            return
+        decoded, safe_cursor_offset = decode(window, config, streaming=True)
+        if decoded:
+            sys.stdout.buffer.write(decoded)
             sys.stdout.buffer.flush()
-            already_emitted.extend(new_bytes)
+        # Advance the cursor by however much the decoder was confident about.
+        cursor = buffer_start_stream_pos + cursor_in_buffer + safe_cursor_offset
+
+        # Trim the retained audio: drop chunks that are entirely before the cursor.
+        while chunks:
+            first_chunk_end_stream_pos = samples_before_buffer + chunks[0].size
+            if first_chunk_end_stream_pos <= cursor:
+                samples_before_buffer += chunks[0].size
+                chunks.pop(0)
+            else:
+                break
+        # Emergency: if buffer still exceeds the cap (nothing decoded for a
+        # long time), drop the oldest samples anyway to keep memory bounded.
+        overflow = _total_buffered() - samples_before_buffer - MAX_WINDOW_SAMPLES
+        while overflow > 0 and chunks:
+            drop = min(overflow, chunks[0].size)
+            if drop >= chunks[0].size:
+                samples_before_buffer += chunks[0].size
+                chunks.pop(0)
+            else:
+                chunks[0] = chunks[0][drop:]
+                samples_before_buffer += drop
+            overflow = _total_buffered() - samples_before_buffer - MAX_WINDOW_SAMPLES
+            if cursor < samples_before_buffer:
+                cursor = samples_before_buffer  # can't go back in time
 
     def _log_audio_snapshot() -> None:
         """1-second snapshot of the last ~1 s of audio: peak, RMS, rough SNR."""
         if not chunks:
             return
-        # Use only the most-recent samples; concatenating everything each second
-        # gets expensive on long sessions.
         recent_needed = sample_rate  # 1 second
         recent: list[np.ndarray] = []
         recent_len = 0
