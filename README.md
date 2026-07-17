@@ -48,6 +48,37 @@ weaklink-9a3ice tx $FLAGS < short_msg.txt
 # ~2 minutes for 20 chars, cliff ≈ −20 dB SNR in 3 kHz
 ```
 
+## Debugging a live-audio setup
+
+Local WAV roundtrip works but mic-and-speaker doesn't decode? Add
+`--modem-debug` to the RX side:
+
+```bash
+weaklink-9a3ice rx --modem-debug > out.txt
+```
+
+It prints, to stderr, on each decode:
+
+- Captured signal duration, peak level, RMS level (in dBFS)
+- Warning if input is very quiet (mic muted, wrong device, gain too low)
+- Detected coarse and per-group frequency offsets
+- Number of preamble peaks found and their positions
+- Blocks decoded vs attempted, per group
+
+Common local-audio gotchas that this catches:
+
+- **RX device isn't the mic you think** — peak level shows −∞ dBFS or
+  no preambles found. Change the OS default input.
+- **macOS built-in mic runs through AGC / noise suppression / voice
+  isolation** which butchers modem tones. Disable in System Settings →
+  Sound → Input (turn off "Noise Cancellation" / "Voice Isolation"), or
+  select a different input device.
+- **Sample-rate mismatch** — 4-FSK tones drift, preamble correlator
+  reports peaks at odd positions or misses them. Force the OS input
+  device to 48 kHz.
+- **Volume too low** — peak level below −40 dBFS. Turn up mic gain or
+  TX output volume.
+
 ## Signal chain
 
 ```

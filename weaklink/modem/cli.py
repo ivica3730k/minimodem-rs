@@ -98,6 +98,13 @@ def _add_modem_args(sub: argparse.ArgumentParser) -> None:
         dest="modem_wav",
         help="Read from / write to a WAV file instead of the live audio device.",
     )
+    modem.add_argument(
+        "--modem-debug",
+        dest="modem_debug",
+        action="store_true",
+        default=False,
+        help="Print RX diagnostics to stderr: sample stats, preamble peaks, per-group decode results.",
+    )
 
 
 def _resolve_version() -> str:
@@ -183,7 +190,7 @@ def _run_rx(args: argparse.Namespace) -> int:
 
         samples = record_until_interrupted(config.waveform.sample_rate)
 
-    decoded = decode(np.asarray(samples), config)
+    decoded = decode(np.asarray(samples), config, debug=args.modem_debug)
     output = decoded.rstrip(b"\x00")  # strip trailing NUL padding TX added at the RS-block boundary
     sys.stdout.buffer.write(output)
     return 0
