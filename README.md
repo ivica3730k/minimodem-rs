@@ -169,10 +169,21 @@ SNR margin; that's Shannon, not the modem.
 
 ## Baud rate range
 
-The same modem code runs from **45 to 700 baud** in a 3 kHz SSB channel with
-no config changes other than ``--baud`` (which auto-adjusts the tone spacing).
-Above 700 baud the 4-FSK tone stack overflows the SSB passband — switch to a
-wider channel or a lower-order modulation (BFSK) for that regime.
+The same modem code runs from **45 baud upward** with no config changes other
+than ``--baud`` (which auto-adjusts the tone spacing to match). How high you
+can go depends on your radio's channel bandwidth — the 4-FSK stack occupies
+roughly ``5 × baud`` Hz null-to-null:
+
+| Channel | Usable baud (rough) |
+|---|---:|
+| Narrow SSB (2.4 kHz) | up to ~500 baud |
+| Standard SSB (2.8 kHz) | up to ~600 baud |
+| Wide / ESSB (5 kHz) | up to ~1000 baud |
+| Narrow FM (~15 kHz) | up to ~3 kbaud |
+
+Behaviour degrades gradually as sideband energy is clipped by the radio's
+filter — nothing catastrophic, just some dB of margin lost. If you know the
+channel is narrow, drop the baud; if you have wideband hardware, push higher.
 
 Clock-drift tolerance: 100 ppm soundcard mismatch decodes fine at every tested
 baud (45, 100, 300, 500, 700) for the short-message preset. Longer packets
@@ -231,6 +242,27 @@ echo -n "CQ CQ CQ this is a longer paragraph over weaklink..." | \
 
 poetry run weaklink-modem rx $COMMON --wav /tmp/para.wav --length 142
 ```
+
+File pipe (arbitrary length, chunked into N RS blocks within a single packet;
+each block is protected independently, decoded independently):
+
+```bash
+COMMON="--baud 100 --tone-spacing 100 --preamble-length 64 --payload-repeats 1 \
+        --rs-data-bytes 32 --rs-parity-bytes 8"
+
+poetry run weaklink-modem tx $COMMON --input long_message.txt --wav /tmp/file.wav
+
+# RX needs to know the original payload length in bytes.
+poetry run weaklink-modem rx $COMMON --output received.txt --wav /tmp/file.wav \
+  --length $(stat -f%z long_message.txt)   # on macOS; use stat -c%s on Linux
+```
+
+Trade-off: RS block size (`--rs-data-bytes`) is per-block, so a big file with
+small `rs_data_bytes` means many blocks per packet — good burst tolerance but
+each block only has `parity_bytes/2` byte error correction. Bigger
+`--rs-data-bytes` (up to 240) reduces block count and spreads error-correction
+capacity across more bytes; useful when the channel is uniformly noisy rather
+than bursty.
 
 Live PulseAudio (default device on Linux; CoreAudio on macOS):
 

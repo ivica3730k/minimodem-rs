@@ -162,26 +162,46 @@ def encode(payload: bytes, config: ModemConfig) -> np.ndarray:
     return modulate(all_symbols, config.waveform)
 
 
+def _rs_num_blocks(config: ModemConfig, payload_length_bytes: int) -> int:
+    """How many RS blocks are needed to carry ``payload_length_bytes``."""
+    codec = config.rs_codec()
+    if codec is None:
+        return 0
+    if payload_length_bytes == 0:
+        return 0
+    return (payload_length_bytes + codec.config.data_bytes - 1) // codec.config.data_bytes
+
+
 def _apply_rs_encode(payload: bytes, config: ModemConfig) -> bytes:
     codec = config.rs_codec()
     if codec is None:
         return payload
-    if len(payload) > codec.config.data_bytes:
-        raise ValueError(
-            f"payload {len(payload)} bytes exceeds rs_data_bytes {codec.config.data_bytes}"
-        )
-    padded = payload.ljust(codec.config.data_bytes, b"\x00")
-    return codec.encode(padded)
+    data_bytes = codec.config.data_bytes
+    num_blocks = _rs_num_blocks(config, len(payload))
+    padded = payload.ljust(num_blocks * data_bytes, b"\x00")
+    encoded_blocks = [
+        codec.encode(padded[i * data_bytes : (i + 1) * data_bytes])
+        for i in range(num_blocks)
+    ]
+    return b"".join(encoded_blocks)
 
 
 def _apply_rs_decode(wire_bytes: bytes, config: ModemConfig, payload_length_bytes: int) -> bytes:
     codec = config.rs_codec()
     if codec is None:
         return wire_bytes[:payload_length_bytes]
-    decoded = codec.try_decode(wire_bytes)
-    if decoded is None:
-        return b"\x00" * payload_length_bytes
-    return decoded[:payload_length_bytes]
+    data_bytes = codec.config.data_bytes
+    block_size = codec.config.block_size
+    num_blocks = _rs_num_blocks(config, payload_length_bytes)
+    decoded_out = bytearray()
+    for block_index in range(num_blocks):
+        block = wire_bytes[block_index * block_size : (block_index + 1) * block_size]
+        decoded = codec.try_decode(block)
+        if decoded is None:
+            decoded_out.extend(b"\x00" * data_bytes)
+        else:
+            decoded_out.extend(decoded)
+    return bytes(decoded_out[:payload_length_bytes])
 
 
 def decode(samples: np.ndarray, config: ModemConfig, payload_length_bytes: int) -> bytes:
@@ -247,7 +267,7 @@ def _wire_bytes_length(config: ModemConfig, payload_length_bytes: int) -> int:
     codec = config.rs_codec()
     if codec is None:
         return payload_length_bytes
-    return codec.config.block_size
+    return _rs_num_blocks(config, payload_length_bytes) * codec.config.block_size
 
 
 def _find_preamble(magnitudes: np.ndarray, config: ModemConfig) -> int:

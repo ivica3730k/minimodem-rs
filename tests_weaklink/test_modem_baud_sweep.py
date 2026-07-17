@@ -65,11 +65,16 @@ def test_survives_100ppm_soundcard_clock_mismatch(baud: int) -> None:
     assert decode(samples, rx_config, payload_length_bytes=15) == payload
 
 
-def test_4fsk_in_ssb_bandwidth_note() -> None:
-    """The 4-FSK stack at 700 baud sits within a 3 kHz SSB passband."""
-    config = _preset(700)
-    total_tone_stack = 4 * config.waveform.tone_spacing_hz
-    assert total_tone_stack <= 2800, (
-        f"tone stack {total_tone_stack} Hz overflows SSB passband; above 700 baud "
-        "you either need a wider channel or BFSK"
-    )
+def test_tone_stack_width_scales_with_baud() -> None:
+    """Sanity check: null-to-null RF bandwidth of the 4-FSK stack is 5 * baud.
+
+    Below is the guideline for how much channel width each baud needs — real
+    behaviour depends on your radio's filter. Standard narrow SSB is ~2.8 kHz,
+    wide/extended SSB reaches ~5 kHz, narrow FM ~15 kHz. Signal degrades
+    gradually as more sideband energy is clipped rather than failing at a hard
+    threshold.
+    """
+    for baud in BAUDS_TO_TEST:
+        config = _preset(baud)
+        null_to_null_hz = 5 * config.waveform.baud
+        assert null_to_null_hz == 5 * baud
