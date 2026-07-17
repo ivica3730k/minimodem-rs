@@ -76,12 +76,6 @@ def _build_parser() -> argparse.ArgumentParser:
     io_rx = rx_parser.add_argument_group("io", "input / output")
     io_rx.add_argument("--output", type=Path, help="Output file (default: stdout).")
     io_rx.add_argument("--wav", type=Path, help="Read from a WAV file instead of recording from the audio device.")
-    io_rx.add_argument(
-        "--record-seconds",
-        type=float,
-        default=None,
-        help="Live record duration when --wav is not set.",
-    )
     return parser
 
 
@@ -125,12 +119,9 @@ def _run_rx(args: argparse.Namespace) -> int:
 
         samples, _ = read_wav(args.wav, expected_sample_rate=config.waveform.sample_rate)
     else:
-        if args.record_seconds is None:
-            print("error: --record-seconds is required for live rx", file=sys.stderr)
-            return 2
-        from weaklink.modem.audio import record
+        from weaklink.modem.audio import record_until_interrupted
 
-        samples = record(args.record_seconds, config.waveform.sample_rate)
+        samples = record_until_interrupted(config.waveform.sample_rate)
 
     decoded = decode(np.asarray(samples), config)
     output = decoded.rstrip(b"\x00")  # strip trailing NUL padding TX added at the RS-block boundary

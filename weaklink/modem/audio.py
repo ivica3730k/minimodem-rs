@@ -49,13 +49,37 @@ def play(samples: np.ndarray, sample_rate: float, *, blocking: bool = True) -> N
         sd.wait()
 
 
-def record(duration_seconds: float, sample_rate: float) -> np.ndarray:
-    """Record ``duration_seconds`` of mono audio from the default input device."""
+def record_until_interrupted(sample_rate: float) -> np.ndarray:
+    """Record mono audio from the default input device until Ctrl-C.
+
+    Returns the accumulated samples as a 1-D float32 array. The stream stays
+    open across the entire recording; callers pass the whole buffer to
+    ``decode()`` once the user has interrupted.
+    """
+    import sys
+
     sd = _import_sounddevice()
-    frame_count = int(round(duration_seconds * sample_rate))
-    recording = sd.rec(frame_count, samplerate=int(round(sample_rate)), channels=1, dtype="float32")
-    sd.wait()
-    return recording.reshape(-1)
+    chunks: list[np.ndarray] = []
+
+    def _callback(indata, _frames, _time, _status):
+        chunks.append(indata.copy())
+
+    print("recording — press Ctrl-C to stop and decode", file=sys.stderr, flush=True)
+    try:
+        with sd.InputStream(
+            samplerate=int(round(sample_rate)),
+            channels=1,
+            dtype="float32",
+            callback=_callback,
+        ):
+            while True:
+                sd.sleep(500)
+    except KeyboardInterrupt:
+        print("stopped, decoding…", file=sys.stderr, flush=True)
+
+    if not chunks:
+        return np.zeros(0, dtype=np.float32)
+    return np.concatenate(chunks).reshape(-1)
 
 
 def _import_sounddevice() -> Any:

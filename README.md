@@ -171,8 +171,7 @@ I/O flags (plain names):
 |------|---------|-------------|
 | `--input PATH` | stdin | TX-only: read bytes from a file. |
 | `--output PATH` | stdout | RX-only: write bytes to a file. |
-| `--wav PATH` | live audio | Read/write a WAV file instead of the audio device. |
-| `--record-seconds T` | — | RX-only: duration to record from the audio device when `--wav` is not set. |
+| `--wav PATH` | live audio | Read/write a WAV file instead of the audio device. When RX omits it, RX blocks recording from the default input device until Ctrl-C, then decodes what it captured. |
 
 ## Running the tests
 
