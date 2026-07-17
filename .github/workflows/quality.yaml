@@ -22,7 +22,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install system audio libs
-        run: sudo apt-get update && sudo apt-get install -y libsndfile1 libportaudio2 minimodem
+        run: sudo apt-get update && sudo apt-get install -y libsndfile1 libportaudio2
 
       - name: Install build tooling and project
         run: |
@@ -33,9 +33,7 @@ jobs:
           python -m pip install .
 
       - name: Check CLI help
-        run: |
-          python -m minimodem_rs.main --help
-          python -m weaklink.modem.cli tx --help
+        run: python -m weaklink.modem.cli tx --help
 
       - name: Run tests (unit + slow SNR sweeps)
         run: poetry run pytest -q -m "slow or not slow" -s

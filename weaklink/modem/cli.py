@@ -1,4 +1,4 @@
-"""Streaming modem CLI. Mirrors minimodem-rs semantics.
+"""Streaming modem CLI.
 
 TX reads stdin (or --input) and streams the whole thing through the modem;
 there is no length field on the wire. RX writes stdout (or --output) with
@@ -21,7 +21,7 @@ from weaklink.modem.waveform import WaveformConfig
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="weaklink-modem", description="Streaming 4-FSK modem, minimodem-style.")
+    parser = argparse.ArgumentParser(prog="weaklink-modem", description="Streaming 4-FSK modem.")
     subparsers = parser.add_subparsers(dest="direction", required=True)
 
     for name in ("tx", "rx"):
@@ -95,7 +95,7 @@ def _run_rx(args: argparse.Namespace) -> int:
         samples = record(args.record_seconds, config.waveform.sample_rate)
 
     decoded = decode(np.asarray(samples), config)
-    output = decoded.rstrip(b"\x00")  # strip trailing NUL padding, same as minimodem-rs
+    output = decoded.rstrip(b"\x00")  # strip trailing NUL padding TX added at the RS-block boundary
     if args.output is not None:
         args.output.write_bytes(output)
     else:

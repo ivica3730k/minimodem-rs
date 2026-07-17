@@ -18,7 +18,7 @@ Wire format
 There is no packet boundary and no length header. TX reads arbitrary bytes,
 pads to the RS block boundary with zeros, and streams. RX emits every
 successfully-decoded data-block payload concatenated. Missing/undecodable
-blocks are silently dropped (mirroring minimodem-rs behaviour).
+blocks are silently dropped.
 """
 
 from __future__ import annotations

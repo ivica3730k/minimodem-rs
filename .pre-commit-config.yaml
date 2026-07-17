@@ -9,7 +9,7 @@ repos:
       - id: black
         stages: [pre-commit]
         language_version: python3
-        args: ["--config", "pyproject.toml", "minimodem_rs", "tests"]
+        args: ["--config", "pyproject.toml", "weaklink", "tests_weaklink"]
         pass_filenames: false
 
   - repo: https://github.com/pycqa/isort
@@ -17,7 +17,7 @@ repos:
     hooks:
       - id: isort
         stages: [pre-commit]
-        args: ["--settings-path", "pyproject.toml", "minimodem_rs", "tests"]
+        args: ["--settings-path", "pyproject.toml", "weaklink", "tests_weaklink"]
         pass_filenames: false
 
   - repo: https://github.com/pre-commit/mirrors-mypy
@@ -25,7 +25,7 @@ repos:
     hooks:
       - id: mypy
         stages: [pre-commit]
-        args: ["--config-file", "pyproject.toml", "minimodem_rs", "tests"]
+        args: ["--config-file", "pyproject.toml", "weaklink", "tests_weaklink"]
         pass_filenames: false
 
   - repo: https://github.com/compilerla/conventional-pre-commit

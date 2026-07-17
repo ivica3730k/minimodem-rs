@@ -3,7 +3,7 @@ name = "weaklink-9a3ice"
 version = "0.0.0"
 description = "4-FSK streaming modem for HF SSB and wider channels: Reed-Solomon framing, soft Viterbi, round-robin block repetition, byte-pipe semantics."
 authors = ["Ivica"]
-packages = [{ include = "minimodem_rs" }, { include = "weaklink" }]
+packages = [{ include = "weaklink" }]
 
 [tool.poetry.dependencies]
 python = "^3.10"
@@ -22,8 +22,6 @@ pylint = "^4.0.5"
 setuptools = "82.0.1"
 
 [tool.poetry.scripts]
-minimodem-rs = "minimodem_rs.main:main"
-weaklink = "weaklink.cli:main"
 weaklink-modem = "weaklink.modem.cli:main"
 weaklink-benchmark = "weaklink.benchmark:main"
 
@@ -58,7 +56,7 @@ markers = [
 
 [tool.mypy]
 python_version = "3.10"
-files = ["minimodem_rs", "weaklink", "tests", "tests_weaklink"]
+files = ["weaklink", "tests_weaklink"]
 ignore_missing_imports = true
 check_untyped_defs = true
 warn_redundant_casts = true

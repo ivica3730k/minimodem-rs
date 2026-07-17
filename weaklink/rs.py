@@ -1,8 +1,8 @@
 """Reed-Solomon block framer.
 
-Copied and trimmed from ``minimodem_rs/helpers.py``. Keeps the same
-``data + [CRC-32] + parity`` layout so blocks are byte-for-byte compatible.
-No dependency on ``minimodem_rs``.
+``data + [CRC-32] + parity`` block layout using the ``reedsolo`` library.
+Each RS block carries ``data_bytes`` payload + optional CRC + ``parity_bytes``
+correction bytes.
 """
 
 from __future__ import annotations

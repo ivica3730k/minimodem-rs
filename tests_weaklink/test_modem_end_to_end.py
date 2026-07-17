@@ -1,4 +1,4 @@
-"""End-to-end streaming roundtrip via WAV file — mirrors the minimodem e2e style."""
+"""End-to-end streaming roundtrip via WAV file."""
 
 from __future__ import annotations
 
