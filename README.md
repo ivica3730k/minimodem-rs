@@ -80,8 +80,8 @@ Shannon, not the modem.
 ## Baud rate range
 
 The same modem code runs from **45 baud upward** with no config changes other
-than ``--baud`` (which auto-adjusts the tone spacing to match). How high you
-can go depends on your radio's channel bandwidth — the 4-FSK stack occupies
+than ``--modem-baud`` (which auto-adjusts the tone spacing to match). How high
+you can go depends on your radio's channel bandwidth — the 4-FSK stack occupies
 roughly ``5 × baud`` Hz null-to-null:
 
 | Channel | Usable baud (rough) |
@@ -143,7 +143,7 @@ poetry run weaklink-modem rx --record-seconds 30 > received.bin
 Slower baud + more sync markers for a noisy HF channel:
 
 ```bash
-COMMON="--baud 45 --sync-every 2"
+COMMON="--modem-baud 45 --modem-sync-every-blocks 2"
 poetry run weaklink-modem tx $COMMON --input msg.txt --wav /tmp/hf.wav
 poetry run weaklink-modem rx $COMMON --wav /tmp/hf.wav
 ```
@@ -152,17 +152,28 @@ poetry run weaklink-modem rx $COMMON --wav /tmp/hf.wav
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--baud N` | `300` | Symbol rate. Every 10× drop buys ~10 dB of SNR budget. |
-| `--tone-spacing HZ` | `--baud` | 4-FSK tone spacing. Match to baud for orthogonality. |
-| `--sample-rate HZ` | `48000` | Audio sample rate. |
-| `--rs-data-bytes N` | `16` | Reed-Solomon data bytes per block. |
-| `--rs-parity-bytes N` | `8` | RS parity bytes (corrects up to N/2 byte errors per block). |
-| `--no-rs-crc` | CRC on | Strip the 4-byte payload CRC that RS uses to reject bogus decodes. |
-| `--sync-every N` | `4` | Preamble inserted every N data blocks. Smaller N = faster re-sync at low SNR, more overhead. |
-| `--block-repeat N` | `1` | Each block transmitted N times, round-robin across the current sync group. RX combines soft LLRs across copies. Buys ~2 dB per doubling in AWGN plus burst-fade diversity. |
+Modem-layer flags (all prefixed `--modem-*`, feed into `ModemConfig`):
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--modem-baud N` | `300` | Symbol rate. Every 10× drop buys ~10 dB of SNR budget. |
+| `--modem-tone-spacing HZ` | `--modem-baud` | 4-FSK tone spacing. Match to baud for orthogonality. |
+| `--modem-sample-rate HZ` | `48000` | Audio sample rate. |
+| `--modem-rs-data-bytes N` | `16` | Reed-Solomon data bytes per block. |
+| `--modem-rs-parity-bytes N` | `8` | RS parity bytes (corrects up to N/2 byte errors per block). |
+| `--modem-no-rs-crc` | CRC on | Strip the 4-byte payload CRC that RS uses to reject bogus decodes. |
+| `--modem-sync-every-blocks N` | `4` | Preamble inserted every N data blocks. Smaller N = faster re-sync at low SNR, more overhead. |
+| `--modem-block-repeats N` | `1` | Each block transmitted N times, round-robin. RX sums soft LLRs. ~2 dB per doubling in AWGN + burst-fade diversity. |
+| `--modem-coarse-freq-search-hz N` | `0` | RX-only: enable FFT-based coarse LO-offset search up to ±N Hz. |
+
+I/O flags (plain names):
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--input PATH` | stdin | TX-only: read bytes from a file. |
+| `--output PATH` | stdout | RX-only: write bytes to a file. |
 | `--wav PATH` | live audio | Read/write a WAV file instead of the audio device. |
 | `--record-seconds T` | — | RX-only: duration to record from the audio device when `--wav` is not set. |
-| `--coarse-freq-search-hz N` | `0` | RX-only: enable FFT-based coarse LO-offset search up to ±N Hz. |
 
 ## Running the tests
 
