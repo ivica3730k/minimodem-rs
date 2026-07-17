@@ -6,10 +6,16 @@ python" the plan asks for without hard-coupling to Pulse's own API.
 
 Both dependencies are imported lazily so that the modem's pure-DSP tests can
 run in environments without libsndfile or an audio server.
+
+Device selection honours ``PULSE_SINK``/``PULSE_SOURCE`` env vars. PortAudio
+usually takes the ALSA-plug path to Pulse, so the env vars don't reach libpulse
+in a way that changes the "default" device — we resolve them ourselves against
+``sounddevice.query_devices()`` and pass an explicit index.
 """
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -44,7 +50,13 @@ def read_wav(path: Path | str, *, expected_sample_rate: float | None = None) -> 
 def play(samples: np.ndarray, sample_rate: float, *, blocking: bool = True) -> None:
     """Play ``samples`` through the default audio device (PulseAudio on Linux)."""
     sd = _import_sounddevice()
-    sd.play(np.asarray(samples, dtype=np.float32), int(round(sample_rate)), blocking=blocking)
+    device = _resolve_device(sd, os.environ.get("PULSE_SINK"), kind="output")
+    sd.play(
+        np.asarray(samples, dtype=np.float32),
+        int(round(sample_rate)),
+        device=device,
+        blocking=blocking,
+    )
     if blocking:
         sd.wait()
 
@@ -59,6 +71,7 @@ def record_until_interrupted(sample_rate: float) -> np.ndarray:
     import sys
 
     sd = _import_sounddevice()
+    device = _resolve_device(sd, os.environ.get("PULSE_SOURCE"), kind="input")
     chunks: list[np.ndarray] = []
 
     def _callback(indata, _frames, _time, _status):
@@ -70,6 +83,7 @@ def record_until_interrupted(sample_rate: float) -> np.ndarray:
             samplerate=int(round(sample_rate)),
             channels=1,
             dtype="float32",
+            device=device,
             callback=_callback,
         ):
             while True:
@@ -91,3 +105,28 @@ def _import_sounddevice() -> Any:
             "or (on Debian/Ubuntu) `sudo apt install libportaudio2` first."
         ) from exc
     return sounddevice
+
+
+def _resolve_device(sd: Any, name_hint: str | None, *, kind: str) -> int | None:
+    """Match ``name_hint`` against ``sounddevice.query_devices()`` names.
+
+    Returns the device index for the best match, or ``None`` to let PortAudio
+    pick its own default. Substring match is intentional — Pulse sink names
+    like ``alsa_output.usb-Focusrite_Scarlett_Solo_...`` don't line up with
+    PortAudio's shorter human-readable strings, so we accept either direction.
+    """
+    if not name_hint:
+        return None
+    channel_attr = "max_input_channels" if kind == "input" else "max_output_channels"
+    try:
+        devices = sd.query_devices()
+    except Exception:
+        return None
+    hint_lower = name_hint.lower()
+    for index, info in enumerate(devices):
+        if info.get(channel_attr, 0) <= 0:
+            continue
+        name = str(info.get("name", "")).lower()
+        if hint_lower in name or name in hint_lower:
+            return index
+    return None

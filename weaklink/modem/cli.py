@@ -211,13 +211,24 @@ def _run_rx(args: argparse.Namespace) -> int:
 
 
 def _live_stream_decode(config: ModemConfig) -> int:
+    import os
+
     import numpy as np
 
-    from weaklink.modem.audio import _import_sounddevice
+    from weaklink.modem.audio import _import_sounddevice, _resolve_device
     from weaklink.modem.codec import estimate_snr_db
     from weaklink.modem.waveform import demodulate_soft
 
     sd = _import_sounddevice()
+    pulse_source = os.environ.get("PULSE_SOURCE")
+    input_device = _resolve_device(sd, pulse_source, kind="input")
+    if pulse_source:
+        if input_device is not None:
+            _log.info("PULSE_SOURCE=%s -> input device index %d (%s)",
+                      pulse_source, input_device, sd.query_devices(input_device)["name"])
+        else:
+            _log.warning("PULSE_SOURCE=%s did not match any input device; using PortAudio default",
+                         pulse_source)
     sample_rate = int(round(config.waveform.sample_rate))
 
     # Rolling audio buffer with a sample-cursor model. samples_before_buffer is
@@ -319,6 +330,7 @@ def _live_stream_decode(config: ModemConfig) -> int:
             samplerate=sample_rate,
             channels=1,
             dtype="float32",
+            device=input_device,
             callback=_callback,
         ):
             while True:

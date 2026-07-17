@@ -386,24 +386,38 @@ def decode(samples: np.ndarray, config: ModemConfig, *, streaming: bool = False)
     return bytes(output)
 
 
+_NOISE_ONLY_BASELINE_DB = 5.12
+"""Bias correction for :func:`estimate_snr_db`.
+
+For 4 i.i.d. exponentially-distributed tone-energy samples (which is the
+distribution you get from complex Gaussian noise through the demodulator),
+``E[max] / E[mean-of-other-3] = (25/12) / (23/36) ≈ 3.26`` -- i.e. even on
+pure noise the "winner / losers" ratio averages to about +5.1 dB. We subtract
+that baseline so a signal-free buffer reads near 0 dB.
+"""
+
+
 def estimate_snr_db(magnitudes: np.ndarray) -> float:
     """Rough per-symbol SNR estimate from demodulated tone magnitudes.
 
-    For each symbol, compares winning-tone power to the mean of the other three
-    tone powers, both as squared magnitudes. Averaged in the log domain.
-    Not a calibrated SNR-in-3-kHz; tracks it monotonically. High values indicate
-    clean signal; near-zero means noise-only.
+    Compares winning-tone power to the mean of the other three tone powers
+    (both as squared magnitudes), then subtracts the noise-only ordering bias
+    so a signal-free buffer reads close to 0 dB. Signal present makes it climb
+    into positive dB. Not calibrated to SNR-in-3-kHz, just a monotonic health
+    indicator.
     """
     if magnitudes.shape[0] == 0 or magnitudes.shape[1] < 2:
         return 0.0
-    winner = magnitudes.max(axis=1)
-    losers_avg = (magnitudes.sum(axis=1) - winner) / (magnitudes.shape[1] - 1)
-    losers_avg = np.maximum(losers_avg, 1e-12)
-    ratios = winner / losers_avg
-    mean_ratio = float(np.mean(ratios))
-    if mean_ratio <= 0.0:
+    # Average the powers first, then take the log-ratio. Less biased than
+    # averaging per-symbol log-ratios.
+    winner_power = float(np.mean(magnitudes.max(axis=1)))
+    losers_avg_power = float(
+        np.mean((magnitudes.sum(axis=1) - magnitudes.max(axis=1)) / (magnitudes.shape[1] - 1))
+    )
+    if winner_power <= 0.0 or losers_avg_power <= 0.0:
         return 0.0
-    return float(10.0 * np.log10(mean_ratio))
+    raw_db = 10.0 * np.log10(winner_power / losers_avg_power)
+    return float(raw_db - _NOISE_ONLY_BASELINE_DB)
 
 
 def _decode_one_block_from_soft(

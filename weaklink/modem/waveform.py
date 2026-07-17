@@ -30,12 +30,11 @@ import numpy as np
 BITS_PER_SYMBOL = 2
 NUM_TONES = 4  # 2 ** BITS_PER_SYMBOL
 
-# Optimal 4-mark Golomb ruler: all pairwise frequency differences are distinct,
-# so 3rd-order intermodulation products (2f_a - f_b) never land on other tones.
-# Trade: total spread is 6 x tone_spacing_hz (vs 3 x for uniform 4-FSK), so
-# the tone stack is ~2x wider on the wire.
-GOLOMB_4_OFFSETS: tuple[float, ...] = (0.0, 1.0, 4.0, 6.0)
-_GOLOMB_4_MEAN: float = sum(GOLOMB_4_OFFSETS) / len(GOLOMB_4_OFFSETS)
+# Uniform 4-FSK tone spacing. Total stack span is 3 x tone_spacing_hz, so at
+# 700 baud with 700 Hz spacing the four tones cover ~2.1 kHz -- fits inside a
+# standard 2.8 kHz SSB voice passband with room to spare.
+UNIFORM_4_OFFSETS: tuple[float, ...] = (0.0, 1.0, 2.0, 3.0)
+_UNIFORM_4_MEAN: float = sum(UNIFORM_4_OFFSETS) / len(UNIFORM_4_OFFSETS)
 
 
 @dataclass(frozen=True)
@@ -45,24 +44,22 @@ class WaveformConfig:
     center_hz: float = 1_500.0
     """Centre of the 4-tone stack in the audio passband."""
     tone_spacing_hz: float = 300.0
-    """Base spacing unit. Actual tone frequencies sit at Golomb-ruler offsets
-    ``center_hz + (offset - mean) * tone_spacing_hz`` for offset in
-    ``{0, 1, 4, 6}``. Minimum tone-to-tone spacing equals ``tone_spacing_hz``;
-    total stack span is ``6 * tone_spacing_hz``."""
+    """Tone-to-tone spacing. The four tones sit at
+    ``center_hz + (offset - 1.5) * tone_spacing_hz`` for offset in
+    ``{0, 1, 2, 3}``. Total stack span is ``3 * tone_spacing_hz``."""
     amplitude: float = 0.25
     """Peak amplitude, well under 1.0 to leave headroom in WAV / audio devices."""
 
     tones_hz: tuple[float, ...] = field(init=False)
 
     MIN_TONE_HZ: float = 500.0
-    """Guardrail: no tone allowed below this frequency. At high baud the Golomb
-    spread is wide enough that the default 1500 Hz center would push the lowest
-    tones into negative territory (aliasing). If that would happen, we bump the
-    center up so the lowest tone lands at MIN_TONE_HZ."""
+    """Guardrail: no tone allowed below this frequency. At high baud the
+    default 1500 Hz center would push the lowest tone toward DC. If that would
+    happen, we bump the center up so the lowest tone lands at MIN_TONE_HZ."""
 
     def __post_init__(self) -> None:
         relative_offsets = tuple(
-            (offset - _GOLOMB_4_MEAN) * self.tone_spacing_hz for offset in GOLOMB_4_OFFSETS
+            (offset - _UNIFORM_4_MEAN) * self.tone_spacing_hz for offset in UNIFORM_4_OFFSETS
         )
         raw_min = self.center_hz + min(relative_offsets)
         if raw_min < self.MIN_TONE_HZ:
