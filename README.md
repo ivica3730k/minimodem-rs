@@ -123,17 +123,33 @@ more of the gap would need LDPC or coherent detection.
 
 ## Install
 
+**Preferred: portable Linux binary** — grab it from the latest release. No
+Python, no Poetry, no venv. Just a single executable:
+
 ```bash
-poetry install
+# Debian / Ubuntu / any glibc-based Linux (x86_64):
+sudo apt install libportaudio2 libsndfile1     # runtime shared libs
+curl -L -o weaklink-9a3ice \
+  https://github.com/ivica3730k/weaklink-9a3ice/releases/latest/download/weaklink-9a3ice-linux-x86_64
+chmod +x weaklink-9a3ice
+./weaklink-9a3ice --version
 ```
 
-Adds `numpy`, `soundfile` (WAV I/O), and `sounddevice` (live audio via
-PortAudio) on top of the existing deps.
-
-On Debian/Ubuntu:
+**Or install the `.deb`** on Debian / Ubuntu:
 
 ```bash
-sudo apt install libportaudio2 libsndfile1
+curl -L -o weaklink-9a3ice.deb \
+  https://github.com/ivica3730k/weaklink-9a3ice/releases/latest/download/weaklink-9a3ice_*.deb
+sudo dpkg -i weaklink-9a3ice.deb
+weaklink-9a3ice --version
+```
+
+**From source (for macOS, Windows, or if you want to hack on it):**
+
+```bash
+poetry install
+sudo apt install libportaudio2 libsndfile1   # Debian/Ubuntu system libs
+poetry run weaklink-9a3ice --version
 ```
 
 ## CLI reference

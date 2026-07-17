@@ -100,8 +100,19 @@ def _add_modem_args(sub: argparse.ArgumentParser) -> None:
     )
 
 
+def _resolve_version() -> str:
+    """Read installed package version. Baked in at binary build time."""
+    try:
+        from importlib.metadata import version as _pkg_version
+
+        return _pkg_version("weaklink-9a3ice")
+    except Exception:
+        return "unknown"
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="weaklink-9a3ice", description="Streaming 4-FSK modem.")
+    parser.add_argument("--version", action="version", version=f"weaklink-9a3ice {_resolve_version()}")
     subparsers = parser.add_subparsers(dest="direction", required=True)
     tx_parser = subparsers.add_parser("tx", help="Encode stdin bytes and transmit (or write to WAV).")
     _add_modem_args(tx_parser)
