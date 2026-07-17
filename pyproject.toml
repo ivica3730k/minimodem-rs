@@ -1,7 +1,7 @@
 [tool.poetry]
-name = "minimodem-rs"
+name = "9a3ice-weaklink"
 version = "0.0.0"
-description = "Reed-Solomon framing wrapper around the minimodem CLI, with tx/rx subcommands and full minimodem option passthrough."
+description = "4-FSK streaming modem for HF SSB and wider channels, with Reed-Solomon framing, soft Viterbi, and block-repetition. Ships with a minimodem CLI wrapper for the legacy path."
 authors = ["Ivica"]
 packages = [{ include = "minimodem_rs" }, { include = "weaklink" }]
 
