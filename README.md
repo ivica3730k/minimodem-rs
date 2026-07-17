@@ -164,9 +164,8 @@ Baseline SNR performance measured in a 3 kHz reference bandwidth:
 | 100 baud, RS(174,142), 2× repeat | **−10 dB** | ~140 chars | ~31 s | paragraph, 2× repeat |
 
 For reference, the Shannon limit at 30 bit/s in 3 kHz is −21.6 dB; at 300 bit/s
-it's −11.6 dB. LDPC in place of Viterbi would close another 2–4 dB of that
-gap. Ten times more information (140 vs 15 chars) costs ~10 dB of SNR margin;
-that's Shannon, not the modem.
+it's −11.6 dB. Ten times more information (140 vs 15 chars) costs ~10 dB of
+SNR margin; that's Shannon, not the modem.
 
 ## Baud rate range
 
