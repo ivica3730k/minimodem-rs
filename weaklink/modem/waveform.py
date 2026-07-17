@@ -54,11 +54,21 @@ class WaveformConfig:
 
     tones_hz: tuple[float, ...] = field(init=False)
 
+    MIN_TONE_HZ: float = 500.0
+    """Guardrail: no tone allowed below this frequency. At high baud the Golomb
+    spread is wide enough that the default 1500 Hz center would push the lowest
+    tones into negative territory (aliasing). If that would happen, we bump the
+    center up so the lowest tone lands at MIN_TONE_HZ."""
+
     def __post_init__(self) -> None:
-        tones = tuple(
-            self.center_hz + (offset - _GOLOMB_4_MEAN) * self.tone_spacing_hz
-            for offset in GOLOMB_4_OFFSETS
+        relative_offsets = tuple(
+            (offset - _GOLOMB_4_MEAN) * self.tone_spacing_hz for offset in GOLOMB_4_OFFSETS
         )
+        raw_min = self.center_hz + min(relative_offsets)
+        if raw_min < self.MIN_TONE_HZ:
+            shift = self.MIN_TONE_HZ - raw_min
+            object.__setattr__(self, "center_hz", self.center_hz + shift)
+        tones = tuple(self.center_hz + off for off in relative_offsets)
         object.__setattr__(self, "tones_hz", tones)
         if self.samples_per_symbol < 8:
             raise ValueError("sample_rate / baud must be >= 8 samples per symbol")
