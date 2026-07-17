@@ -1,7 +1,7 @@
 [tool.poetry]
-name = "9a3ice-weaklink"
+name = "weaklink-9a3ice"
 version = "0.0.0"
-description = "4-FSK streaming modem for HF SSB and wider channels, with Reed-Solomon framing, soft Viterbi, and block-repetition. Ships with a minimodem CLI wrapper for the legacy path."
+description = "4-FSK streaming modem for HF SSB and wider channels: Reed-Solomon framing, soft Viterbi, round-robin block repetition, byte-pipe semantics."
 authors = ["Ivica"]
 packages = [{ include = "minimodem_rs" }, { include = "weaklink" }]
 
