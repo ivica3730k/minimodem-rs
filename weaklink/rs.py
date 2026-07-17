@@ -48,15 +48,27 @@ class RSBlockCodec:
 
     def try_decode(self, block: bytes) -> bytes | None:
         """Return the payload bytes on success, or None if the block is untrustworthy."""
+        payload, _errors = self.try_decode_with_stats(block)
+        return payload
+
+    def try_decode_with_stats(self, block: bytes) -> tuple[bytes | None, int]:
+        """Return ``(payload, errors_corrected)``.
+
+        ``errors_corrected`` is the number of byte-symbols the RS decoder had
+        to fix. Zero means the block arrived clean; positive means the outer
+        code intervened.
+        """
         try:
-            decoded = bytes(self._codec.decode(block)[0])
+            decoded_msg, _decoded_with_ecc, errata_positions = self._codec.decode(block)
+            decoded = bytes(decoded_msg)
+            errors_corrected = len(errata_positions)
         except reedsolo.ReedSolomonError:
-            return None
+            return None, 0
         if self.config.crc_enabled:
             if len(decoded) < CRC_BYTES:
-                return None
+                return None, errors_corrected
             payload, crc = decoded[:-CRC_BYTES], decoded[-CRC_BYTES:]
             if int.from_bytes(crc, "big") != zlib.crc32(payload):
-                return None
-            return payload
-        return decoded
+                return None, errors_corrected
+            return payload, errors_corrected
+        return decoded, errors_corrected

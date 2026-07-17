@@ -214,6 +214,8 @@ def _live_stream_decode(config: ModemConfig) -> int:
     import numpy as np
 
     from weaklink.modem.audio import _import_sounddevice
+    from weaklink.modem.codec import estimate_snr_db
+    from weaklink.modem.waveform import demodulate_soft
 
     sd = _import_sounddevice()
     sample_rate = int(round(config.waveform.sample_rate))
@@ -222,7 +224,7 @@ def _live_stream_decode(config: ModemConfig) -> int:
     def _callback(indata, _frames, _time, _status):
         chunks.append(indata.copy())
 
-    _log.info("live rx: recording from default input, streaming decode every 1 s")
+    _log.info("live rx: recording from default input, polling every 100 ms")
     already_emitted = bytearray()
 
     def _try_emit_from_buffer() -> None:
@@ -231,14 +233,43 @@ def _live_stream_decode(config: ModemConfig) -> int:
         buffer = np.concatenate(chunks).reshape(-1)
         decoded = decode(buffer, config)
         # Only emit if the new decode's prefix matches what we've already
-        # emitted -- protects against a re-decode that shifts earlier bytes
-        # (rare, but the coarse offset can jitter as more samples arrive).
+        # emitted -- protects against a re-decode that shifts earlier bytes.
         if len(decoded) > len(already_emitted) and decoded[: len(already_emitted)] == bytes(already_emitted):
             new_bytes = decoded[len(already_emitted):]
             sys.stdout.buffer.write(new_bytes)
             sys.stdout.buffer.flush()
             already_emitted.extend(new_bytes)
 
+    def _log_audio_snapshot() -> None:
+        """1-second snapshot of the last ~1 s of audio: peak, RMS, rough SNR."""
+        if not chunks:
+            return
+        # Use only the most-recent samples; concatenating everything each second
+        # gets expensive on long sessions.
+        recent_needed = sample_rate  # 1 second
+        recent: list[np.ndarray] = []
+        recent_len = 0
+        for chunk in reversed(chunks):
+            recent.append(chunk)
+            recent_len += chunk.size
+            if recent_len >= recent_needed:
+                break
+        window = np.concatenate(list(reversed(recent))).reshape(-1)[-recent_needed:]
+        window_float = window.astype(np.float64)
+        peak = float(np.max(np.abs(window_float))) if window_float.size else 0.0
+        rms = float(np.sqrt(np.mean(window_float ** 2))) if window_float.size else 0.0
+        peak_db = 20.0 * np.log10(peak) if peak > 0 else float("-inf")
+        rms_db = 20.0 * np.log10(rms) if rms > 0 else float("-inf")
+        magnitudes = demodulate_soft(window, config.waveform)
+        snr_db = estimate_snr_db(magnitudes)
+        _log.info(
+            "audio snapshot (last 1 s): peak %+.1f dBFS, rms %+.1f dBFS, rough SNR %+.1f dB",
+            peak_db, rms_db, snr_db,
+        )
+
+    poll_ms = 100
+    snapshot_every_polls = 10  # 1 s at 100 ms poll
+    poll_counter = 0
     try:
         with sd.InputStream(
             samplerate=sample_rate,
@@ -247,8 +278,11 @@ def _live_stream_decode(config: ModemConfig) -> int:
             callback=_callback,
         ):
             while True:
-                sd.sleep(1000)  # decode attempt once per second
+                sd.sleep(poll_ms)
+                poll_counter += 1
                 _try_emit_from_buffer()
+                if poll_counter % snapshot_every_polls == 0:
+                    _log_audio_snapshot()
     except KeyboardInterrupt:
         _log.info("live rx: keyboard interrupt, finalising decode")
         _try_emit_from_buffer()

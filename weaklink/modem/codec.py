@@ -295,6 +295,7 @@ def decode(samples: np.ndarray, config: ModemConfig) -> bytes:
     output = bytearray()
     total_blocks_attempted = 0
     total_blocks_decoded = 0
+    total_rs_errors_corrected = 0
     for peak_index in range(len(peaks_with_end) - 1):
         group_start = peaks_with_end[peak_index] + len(preamble)
         group_end = peaks_with_end[peak_index + 1]
@@ -325,6 +326,7 @@ def decode(samples: np.ndarray, config: ModemConfig) -> bytes:
             base_offset_in_group = group_start
 
         group_decoded = 0
+        group_rs_errors = 0
         for block_index in range(num_data_blocks):
             total_blocks_attempted += 1
             # Sum LLRs across copies rather than magnitudes; max-log-MAP is
@@ -339,29 +341,61 @@ def decode(samples: np.ndarray, config: ModemConfig) -> bytes:
                     combined_soft = copy_soft.copy()
                 else:
                     combined_soft += copy_soft
-            decoded = _decode_one_block_from_soft(combined_soft, config, codec)
+            decoded, errors_corrected = _decode_one_block_from_soft(combined_soft, config, codec)
             if decoded is not None:
                 output.extend(decoded)
                 group_decoded += 1
                 total_blocks_decoded += 1
+                if errors_corrected > 0:
+                    group_rs_errors += errors_corrected
+                    total_rs_errors_corrected += errors_corrected
+        if group_rs_errors > 0:
+            _log.warning(
+                "RS intervened in group %d: corrected %d byte-symbols across %d decoded block(s)",
+                peak_index, group_rs_errors, group_decoded,
+            )
         _log.debug("group %d: %d/%d blocks decoded", peak_index, group_decoded, num_data_blocks)
 
     _log.info(
-        "totals: %d/%d blocks decoded, %d bytes emitted",
-        total_blocks_decoded, total_blocks_attempted, len(output),
+        "totals: %d/%d blocks decoded, %d bytes emitted, %d RS corrections",
+        total_blocks_decoded, total_blocks_attempted, len(output), total_rs_errors_corrected,
     )
     return bytes(output)
 
 
-def _decode_one_block_from_soft(soft_bits: np.ndarray, config: ModemConfig, codec: RSBlockCodec) -> bytes | None:
-    """Decode a single block from combined soft LLR bits."""
+def estimate_snr_db(magnitudes: np.ndarray) -> float:
+    """Rough per-symbol SNR estimate from demodulated tone magnitudes.
+
+    For each symbol, compares winning-tone power to the mean of the other three
+    tone powers, both as squared magnitudes. Averaged in the log domain.
+    Not a calibrated SNR-in-3-kHz; tracks it monotonically. High values indicate
+    clean signal; near-zero means noise-only.
+    """
+    if magnitudes.shape[0] == 0 or magnitudes.shape[1] < 2:
+        return 0.0
+    winner = magnitudes.max(axis=1)
+    losers_avg = (magnitudes.sum(axis=1) - winner) / (magnitudes.shape[1] - 1)
+    losers_avg = np.maximum(losers_avg, 1e-12)
+    ratios = winner / losers_avg
+    return float(10.0 * np.log10(np.mean(ratios)))
+
+
+def _decode_one_block_from_soft(
+    soft_bits: np.ndarray, config: ModemConfig, codec: RSBlockCodec
+) -> tuple[bytes | None, int]:
+    """Decode a single block from combined soft LLR bits.
+
+    Returns ``(payload, errors_corrected)``. ``errors_corrected`` is the count
+    of byte-symbols the RS outer code had to fix; zero when the block arrived
+    clean, positive when RS intervened.
+    """
     coded_bits_count = 2 * (codec.config.block_size * 8 + fec.CONSTRAINT_LENGTH - 1)
     if soft_bits.shape[0] < coded_bits_count:
-        return None
+        return None, 0
     deinterleaved = deinterleave_soft(soft_bits, config.interleaver, coded_bits_count)
     payload_bits = fec.decode(deinterleaved, num_output_bits=codec.config.block_size * 8)
     wire_bytes = _bits_to_bytes_msb(payload_bits)
-    return codec.try_decode(wire_bytes)
+    return codec.try_decode_with_stats(wire_bytes)
 
 
 def _find_preamble_peaks(
