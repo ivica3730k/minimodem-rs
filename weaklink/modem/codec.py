@@ -196,7 +196,12 @@ def encode(input_bytes: bytes, config: ModemConfig) -> np.ndarray:
     return modulate(all_symbols, config.waveform)
 
 
-def decode(samples: np.ndarray, config: ModemConfig, *, debug: bool = False) -> bytes:
+import logging as _logging
+
+_log = _logging.getLogger("weaklink.decode")
+
+
+def decode(samples: np.ndarray, config: ModemConfig) -> bytes:
     """Decode an audio stream to bytes. Missing/undecodable blocks are dropped.
 
     Frequency-offset tracking is per-preamble: after the global coarse search,
@@ -205,18 +210,13 @@ def decode(samples: np.ndarray, config: ModemConfig, *, debug: bool = False) -> 
     slow LO drift and satellite Doppler across long transmissions without any
     external AFC.
 
-    ``debug=True`` prints diagnostics to stderr — sample stats, preamble
-    correlator peaks, per-group decode results — useful for troubleshooting
-    live-audio setups where the modem "just doesn't decode".
+    Diagnostics go through the standard ``logging`` module (logger name
+    ``weaklink.decode``). Set the CLI ``--modem-debug`` flag to raise the log
+    level to DEBUG; otherwise INFO-level events (per-decode summary + warnings)
+    are what you get.
     """
-    import sys as _sys
-
-    def _dbg(msg: str) -> None:
-        if debug:
-            print(f"weaklink-rx: {msg}", file=_sys.stderr, flush=True)
-
     if len(samples) == 0:
-        _dbg("empty sample buffer; nothing to decode")
+        _log.debug("empty sample buffer; nothing to decode")
         return b""
     samples_per_symbol = config.waveform.samples_per_symbol
 
@@ -226,14 +226,14 @@ def decode(samples: np.ndarray, config: ModemConfig, *, debug: bool = False) -> 
     rms = float(np.sqrt(np.mean(samples_float ** 2))) if len(samples_float) else 0.0
     peak_db = 20.0 * np.log10(peak) if peak > 0 else -np.inf
     rms_db = 20.0 * np.log10(rms) if rms > 0 else -np.inf
-    _dbg(
-        f"input: {len(samples_float)} samples, {duration_s:.2f} s, "
-        f"peak {peak:.4f} ({peak_db:+.1f} dBFS), rms {rms:.4f} ({rms_db:+.1f} dBFS)"
+    _log.info(
+        "input: %d samples, %.2f s, peak %.4f (%+.1f dBFS), rms %.4f (%+.1f dBFS)",
+        len(samples_float), duration_s, peak, peak_db, rms, rms_db,
     )
     if peak_db < -40:
-        _dbg("WARNING: peak level below -40 dBFS. Mic input probably too quiet or muted.")
+        _log.warning("peak level below -40 dBFS. Mic input probably too quiet or muted.")
     if rms_db < -60:
-        _dbg("WARNING: rms level below -60 dBFS. Likely no signal at all.")
+        _log.warning("rms level below -60 dBFS. Likely no signal at all.")
 
     # 1. Global coarse offset (FFT-based, handles big SSB LO drift).
     coarse_offset = 0.0
@@ -243,19 +243,19 @@ def decode(samples: np.ndarray, config: ModemConfig, *, debug: bool = False) -> 
             config.waveform,
             search_range_hz=config.coarse_frequency_search_hz,
         )
-    _dbg(f"coarse frequency offset: {coarse_offset:+.1f} Hz")
+    _log.info("coarse frequency offset: %+.1f Hz", coarse_offset)
 
     # 2. Demodulate once with the coarse offset just to find preambles.
     coarse_magnitudes = demodulate_soft(samples, config.waveform, frequency_offset_hz=coarse_offset)
     if coarse_magnitudes.shape[0] == 0:
-        _dbg("demodulator returned no symbols; sample count below one symbol")
+        _log.debug("demodulator returned no symbols; sample count below one symbol")
         return b""
 
     preamble = preamble_symbols()
     peaks = _find_preamble_peaks(coarse_magnitudes, preamble, config)
-    _dbg(f"preamble peaks found: {len(peaks)} at symbol offsets {peaks[:8]}{'...' if len(peaks) > 8 else ''}")
+    _log.info("preamble peaks found: %d at symbol offsets %s", len(peaks), peaks[:8])
     if not peaks:
-        _dbg(
+        _log.warning(
             "no preambles above threshold — either no modem signal in the buffer, "
             "SNR too low, or wrong baud/tone_spacing on RX. Check with a WAV loopback first."
         )
@@ -307,9 +307,9 @@ def decode(samples: np.ndarray, config: ModemConfig, *, debug: bool = False) -> 
             continue
 
         group_offset = per_peak_offsets[peak_index]
-        _dbg(
-            f"group {peak_index}: start_sym={group_start}, span_sym={span}, "
-            f"data_blocks={num_data_blocks}, fine_offset={group_offset:+.1f} Hz"
+        _log.debug(
+            "group %d: start_sym=%d, span_sym=%d, data_blocks=%d, fine_offset=%+.1f Hz",
+            peak_index, group_start, span, num_data_blocks, group_offset,
         )
         if abs(group_offset - coarse_offset) > 0.5:
             # Re-demodulate just this group's samples with the drifted offset.
@@ -344,11 +344,11 @@ def decode(samples: np.ndarray, config: ModemConfig, *, debug: bool = False) -> 
                 output.extend(decoded)
                 group_decoded += 1
                 total_blocks_decoded += 1
-        _dbg(f"group {peak_index}: {group_decoded}/{num_data_blocks} blocks decoded")
+        _log.debug("group %d: %d/%d blocks decoded", peak_index, group_decoded, num_data_blocks)
 
-    _dbg(
-        f"totals: {total_blocks_decoded}/{total_blocks_attempted} blocks decoded, "
-        f"{len(output)} bytes emitted"
+    _log.info(
+        "totals: %d/%d blocks decoded, %d bytes emitted",
+        total_blocks_decoded, total_blocks_attempted, len(output),
     )
     return bytes(output)
 

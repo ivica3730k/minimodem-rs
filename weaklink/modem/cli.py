@@ -19,12 +19,16 @@ preset with a stderr warning.
 from __future__ import annotations
 
 import argparse
+import logging
 import sys
 from pathlib import Path
 from typing import Sequence
 
 from weaklink.modem.codec import ModemConfig, decode, encode
 from weaklink.modem.waveform import WaveformConfig
+
+DEFAULT_LOG_PATH = Path("log.txt")
+_log = logging.getLogger("weaklink.cli")
 
 
 # Per-baud preset: RS parameters, block repetition, sync marker density
@@ -103,7 +107,16 @@ def _add_modem_args(sub: argparse.ArgumentParser) -> None:
         dest="modem_debug",
         action="store_true",
         default=False,
-        help="Print RX diagnostics to stderr: sample stats, preamble peaks, per-group decode results.",
+        help="Verbose diagnostics (DEBUG level) in the log file: per-group decode "
+        "results, offset estimates, etc.",
+    )
+    modem.add_argument(
+        "--modem-log-file",
+        type=Path,
+        default=DEFAULT_LOG_PATH,
+        dest="modem_log_file",
+        help=f"Path to the log file (default: ./{DEFAULT_LOG_PATH}). "
+        "stdout/stderr are never used for diagnostics.",
     )
 
 
@@ -132,11 +145,10 @@ def _pick_preset(baud: float) -> dict[str, int]:
     """Look up the preset for ``baud``; fall back to the 300-baud preset with a warning."""
     if baud in BAUD_PRESETS:
         return BAUD_PRESETS[baud]
-    print(
-        f"weaklink-9a3ice: warning: baud {baud} is not in the tested preset set "
-        f"{sorted(BAUD_PRESETS.keys())!s}; falling back to the {FALLBACK_PRESET_BAUD:g}-baud "
-        f"preset. Override any modem knob explicitly to silence this.",
-        file=sys.stderr,
+    _log.warning(
+        "baud %s is not in the tested preset set %s; falling back to the %g-baud preset. "
+        "Override any modem knob explicitly to silence this.",
+        baud, sorted(BAUD_PRESETS.keys()), FALLBACK_PRESET_BAUD,
     )
     return BAUD_PRESETS[FALLBACK_PRESET_BAUD]
 
@@ -182,26 +194,91 @@ def _run_rx(args: argparse.Namespace) -> int:
 
     config = _make_config(args)
     if args.modem_wav is not None:
+        # File mode: one-shot decode of the whole WAV.
         from weaklink.modem.audio import read_wav
 
         samples, _ = read_wav(args.modem_wav, expected_sample_rate=config.waveform.sample_rate)
-    else:
-        from weaklink.modem.audio import record_until_interrupted
+        decoded = decode(np.asarray(samples), config)
+        output = decoded.rstrip(b"\x00")
+        sys.stdout.buffer.write(output)
+        sys.stdout.buffer.flush()
+        return 0
 
-        samples = record_until_interrupted(config.waveform.sample_rate)
+    # Live mode: streaming decode. As samples come in from the audio device we
+    # re-decode the growing buffer once per second and print any newly-decoded
+    # bytes to stdout immediately. Ctrl-C stops recording.
+    return _live_stream_decode(config)
 
-    decoded = decode(np.asarray(samples), config, debug=args.modem_debug)
-    output = decoded.rstrip(b"\x00")  # strip trailing NUL padding TX added at the RS-block boundary
-    sys.stdout.buffer.write(output)
+
+def _live_stream_decode(config: ModemConfig) -> int:
+    import numpy as np
+
+    from weaklink.modem.audio import _import_sounddevice
+
+    sd = _import_sounddevice()
+    sample_rate = int(round(config.waveform.sample_rate))
+    chunks: list[np.ndarray] = []
+
+    def _callback(indata, _frames, _time, _status):
+        chunks.append(indata.copy())
+
+    _log.info("live rx: recording from default input, streaming decode every 1 s")
+    already_emitted = bytearray()
+
+    def _try_emit_from_buffer() -> None:
+        if not chunks:
+            return
+        buffer = np.concatenate(chunks).reshape(-1)
+        decoded = decode(buffer, config)
+        # Only emit if the new decode's prefix matches what we've already
+        # emitted -- protects against a re-decode that shifts earlier bytes
+        # (rare, but the coarse offset can jitter as more samples arrive).
+        if len(decoded) > len(already_emitted) and decoded[: len(already_emitted)] == bytes(already_emitted):
+            new_bytes = decoded[len(already_emitted):]
+            sys.stdout.buffer.write(new_bytes)
+            sys.stdout.buffer.flush()
+            already_emitted.extend(new_bytes)
+
+    try:
+        with sd.InputStream(
+            samplerate=sample_rate,
+            channels=1,
+            dtype="float32",
+            callback=_callback,
+        ):
+            while True:
+                sd.sleep(1000)  # decode attempt once per second
+                _try_emit_from_buffer()
+    except KeyboardInterrupt:
+        _log.info("live rx: keyboard interrupt, finalising decode")
+        _try_emit_from_buffer()
     return 0
+
+
+def _configure_logging(log_path: Path, debug: bool) -> None:
+    """Send all diagnostics to ``log_path``. stdout/stderr stay clean."""
+    handler = logging.FileHandler(log_path, mode="a", encoding="utf-8")
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+    root = logging.getLogger("weaklink")
+    root.setLevel(logging.DEBUG if debug else logging.INFO)
+    # Clear any handlers a previous main() call added.
+    for existing in list(root.handlers):
+        root.removeHandler(existing)
+    root.addHandler(handler)
+    root.propagate = False
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
-    if args.direction == "tx":
-        return _run_tx(args)
-    return _run_rx(args)
+    _configure_logging(args.modem_log_file, args.modem_debug)
+    _log.info("weaklink-9a3ice %s starting", args.direction)
+    try:
+        if args.direction == "tx":
+            return _run_tx(args)
+        return _run_rx(args)
+    finally:
+        logging.shutdown()
 
 
 if __name__ == "__main__":
