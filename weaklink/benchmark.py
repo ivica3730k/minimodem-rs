@@ -1,7 +1,5 @@
-"""Benchmark suite: sweep the full grid of {baud} x {repeats} x {RS config}
-with a fixed 100-byte payload, find each combination's SNR cliff, compute
-Shannon at the same info rate, and rewrite the results table in README.md
-between the BENCHMARK RESULTS markers.
+"""Streaming-modem benchmark: sweep baud x RS x sync-every, measure the SNR
+cliff, compute Shannon at the same info rate, rewrite the README table.
 
 Run with::
 
@@ -9,9 +7,9 @@ Run with::
     poetry run weaklink-benchmark --trials 3    # faster
     poetry run weaklink-benchmark --dry-run     # print table, no README edit
 
-Cliff-finding: walk down from a high SNR in 1 dB steps, record the lowest SNR
-at which every trial still decodes byte-for-byte. Conservative — the true 50%
-cliff is typically 1-2 dB below the reported value.
+Cliff finding: 1 dB steps, record the lowest SNR at which every trial still
+decodes the whole payload byte-for-byte. Conservative — the 50% cliff is
+usually 1–2 dB below.
 """
 
 from __future__ import annotations
@@ -36,42 +34,31 @@ README_END_MARKER = "<!-- BENCHMARK RESULTS END -->"
 PAYLOAD_BYTES: int = 100
 PAYLOAD_SEED: int = 0
 BAUDS: tuple[int, ...] = (45, 100, 300, 1200)
-REPEATS: tuple[int, ...] = (1, 2, 4)
-# RS configs as (data_bytes, parity_bytes). Rough overhead ratios:
-#   (16, 8)  = 33% parity, small block (7 blocks per 100 bytes)
-#   (32, 8)  = 20% parity, mid block  (4 blocks per 100 bytes)
-#   (128, 32) = 20% parity, big block (1 padded block per 100 bytes)
 RS_CONFIGS: tuple[tuple[int, int], ...] = ((16, 8), (32, 8), (128, 32))
+SYNC_EVERY: tuple[int, ...] = (2, 4, 8)
 
 
 @dataclass
 class Config:
     baud: int
-    repeats: int
     rs_data: int
     rs_parity: int
+    sync_every: int
     payload_bytes: int = PAYLOAD_BYTES
-    note: str = ""  # optional label shown in the throughput column
+    note: str = ""
 
     def build(self) -> ModemConfig:
         return ModemConfig(
             waveform=WaveformConfig(baud=float(self.baud), tone_spacing_hz=float(self.baud)),
-            preamble_length=64,
-            payload_repeats=self.repeats,
             rs_data_bytes=self.rs_data,
             rs_parity_bytes=self.rs_parity,
             rs_crc_enabled=True,
+            sync_every_blocks=self.sync_every,
         )
 
     def rs_label(self) -> str:
-        block_size = self.rs_data + self.rs_parity + 4  # +CRC-32
+        block_size = self.rs_data + self.rs_parity + 4
         return f"RS({block_size},{self.rs_data})"
-
-    def snr_search_high_db(self) -> float:
-        return 10.0
-
-    def snr_search_low_db(self) -> float:
-        return -28.0
 
 
 @dataclass
@@ -83,9 +70,9 @@ class Result:
     shannon_snr_db: float
 
 
-def _random_payload(size_bytes: int) -> bytes:
+def _random_payload(size: int) -> bytes:
     alphabet = (string.ascii_letters + string.digits + " ").encode("ascii")
-    return bytes(random.Random(PAYLOAD_SEED).choices(alphabet, k=size_bytes))
+    return bytes(random.Random(PAYLOAD_SEED).choices(alphabet, k=size))
 
 
 def shannon_snr_db(info_rate_bit_per_s: float, bandwidth_hz: float = REFERENCE_BANDWIDTH_HZ) -> float:
@@ -109,20 +96,25 @@ def _find_cliff(config: Config, *, trials: int, payload: bytes) -> Result:
     shannon = shannon_snr_db(info_rate)
 
     cliff: float | None = None
-    snr_high = config.snr_search_high_db()
-    snr_low = config.snr_search_low_db()
-    snr_db = snr_high
-    while snr_db >= snr_low:
+    snr_db = 10.0
+    while snr_db >= -28.0:
         successes = 0
         for trial in range(trials):
-            seed_input = (config.baud * 1_000_003) + (config.repeats * 977) + (config.rs_data * 71) + (trial * 31) + int(snr_db * 10)
+            seed_input = (
+                config.baud * 1_000_003
+                + config.rs_data * 71
+                + config.sync_every * 13
+                + trial * 31
+                + int(snr_db * 10)
+            )
             noisy = _add_awgn(
                 samples,
                 snr_db=snr_db,
                 sample_rate=modem_config.waveform.sample_rate,
                 seed=abs(seed_input) & 0x7FFFFFFF,
             )
-            if decode(noisy, modem_config, payload_length_bytes=len(payload)) == payload:
+            decoded = decode(noisy, modem_config).rstrip(b"\x00")
+            if decoded == payload.rstrip(b"\x00"):
                 successes += 1
         if successes == trials:
             cliff = float(snr_db)
@@ -139,40 +131,21 @@ def _find_cliff(config: Config, *, trials: int, payload: bytes) -> Result:
 
 
 def _enumerate_configs() -> list[Config]:
-    configs = []
+    configs: list[Config] = []
     for baud in BAUDS:
-        for repeats in REPEATS:
-            for rs_data, rs_parity in RS_CONFIGS:
-                configs.append(Config(baud=baud, repeats=repeats, rs_data=rs_data, rs_parity=rs_parity))
-    # Notable single-config rows below the main grid.
-    configs.extend(
-        [
-            Config(
-                baud=45,
-                repeats=6,
-                rs_data=16,
-                rs_parity=8,
-                payload_bytes=15,
-                note="fixed 15-byte payload, 6x repeat — SNR floor push",
-            ),
-            Config(
-                baud=45,
-                repeats=4,
-                rs_data=16,
-                rs_parity=8,
-                payload_bytes=20,
-                note="20 B = 10 sensor reports via protocol codec (~99 B as ASCII)",
-            ),
-        ]
-    )
+        for rs_data, rs_parity in RS_CONFIGS:
+            for sync_every in SYNC_EVERY:
+                configs.append(
+                    Config(baud=baud, rs_data=rs_data, rs_parity=rs_parity, sync_every=sync_every)
+                )
     return configs
 
 
 def format_table(results: list[Result]) -> str:
     header = [
-        f"Payload: {PAYLOAD_BYTES} random-ASCII bytes unless noted. Reference bandwidth: 3 kHz.",
+        f"Streaming modem. Payload: {PAYLOAD_BYTES} random-ASCII bytes. Reference bandwidth: 3 kHz.",
         "",
-        "| Baud | RS | Repeats | Throughput | Info rate | Our cliff | Shannon | Gap |",
+        "| Baud | RS | Sync every | Throughput | Info rate | Our cliff | Shannon | Gap |",
         "|---:|---|---:|---|---:|---:|---:|---:|",
     ]
     rows = []
@@ -187,9 +160,8 @@ def format_table(results: list[Result]) -> str:
         if r.config.note:
             throughput = f"{throughput}<br/><sub>{r.config.note}</sub>"
         rows.append(
-            f"| {r.config.baud} | {r.config.rs_label()} | {r.config.repeats}&times; | "
-            f"{throughput} | "
-            f"{r.info_rate_bit_per_s:.1f} bit/s | {cliff_text} | "
+            f"| {r.config.baud} | {r.config.rs_label()} | {r.config.sync_every} | "
+            f"{throughput} | {r.info_rate_bit_per_s:.1f} bit/s | {cliff_text} | "
             f"{r.shannon_snr_db:+.1f} dB | {gap_text} |"
         )
     return "\n".join(header + rows)
@@ -231,7 +203,7 @@ def main(argv: list[str] | None = None) -> int:
         cliff = f"{result.cliff_snr_db:+.0f} dB" if result.cliff_snr_db is not None else "no decode"
         print(
             f"[{elapsed:5.1f}s] baud={config.baud:>4} {config.rs_label():>13} "
-            f"repeats={config.repeats}x  duration={result.duration_seconds:6.1f}s  "
+            f"sync_every={config.sync_every:>2}  duration={result.duration_seconds:6.1f}s  "
             f"info={result.info_rate_bit_per_s:7.1f} bit/s  cliff={cliff:>9s}  "
             f"shannon={result.shannon_snr_db:+.1f} dB"
         )

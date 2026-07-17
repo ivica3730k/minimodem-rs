@@ -1,12 +1,12 @@
-"""Modem CLI: byte-level tx/rx over the 4-FSK modem.
+"""Streaming modem CLI. Mirrors minimodem-rs semantics.
 
-Two subcommands mirror the minimodem-rs CLI shape:
+TX reads stdin (or --input) and streams the whole thing through the modem;
+there is no length field on the wire. RX writes stdout (or --output) with
+every successfully-decoded block payload concatenated. Callers add whatever
+framing / message structure they want on top.
 
-    weaklink-modem tx --input msg.bin --wav out.wav
-    weaklink-modem rx --output rx.bin --wav out.wav --length 21
-
-Live PulseAudio flows are supported by omitting ``--wav`` on either side, but
-the offline WAV path is what the tests exercise.
+    echo -n "hello over air" | poetry run weaklink-modem tx --wav out.wav
+    poetry run weaklink-modem rx --wav out.wav  > received.bin
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from weaklink.modem.waveform import WaveformConfig
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="weaklink-modem", description="Weaklink 4-FSK modem tx/rx.")
+    parser = argparse.ArgumentParser(prog="weaklink-modem", description="Streaming 4-FSK modem, minimodem-style.")
     subparsers = parser.add_subparsers(dest="direction", required=True)
 
     for name in ("tx", "rx"):
@@ -29,11 +29,11 @@ def _build_parser() -> argparse.ArgumentParser:
         sub.add_argument("--baud", type=float, default=300.0)
         sub.add_argument("--sample-rate", type=float, default=48_000.0)
         sub.add_argument("--tone-spacing", type=float, default=None, help="Tone spacing in Hz. Defaults to baud.")
-        sub.add_argument("--preamble-length", type=int, default=64, help="Preamble length in symbols.")
-        sub.add_argument("--payload-repeats", type=int, default=1, help="Repeat the payload N times for soft combining gain.")
-        sub.add_argument("--rs-data-bytes", type=int, default=None, help="Enable RS outer code with this many data bytes.")
+        sub.add_argument("--rs-data-bytes", type=int, default=16)
         sub.add_argument("--rs-parity-bytes", type=int, default=8)
         sub.add_argument("--no-rs-crc", dest="rs_crc_enabled", action="store_false", default=True)
+        sub.add_argument("--sync-every", type=int, default=4, dest="sync_every_blocks",
+                         help="Preamble inserted every N data blocks (default 4).")
         sub.add_argument("--wav", type=Path, help="Read from / write to a WAV file instead of the audio device.")
 
     tx_parser = subparsers.choices["tx"]
@@ -41,25 +41,21 @@ def _build_parser() -> argparse.ArgumentParser:
 
     rx_parser = subparsers.choices["rx"]
     rx_parser.add_argument("--output", type=Path, help="Output file (default: stdout).")
-    rx_parser.add_argument("--length", type=int, required=True, help="Expected payload length in bytes.")
-    rx_parser.add_argument(
-        "--record-seconds",
-        type=float,
-        default=None,
-        help="Live-record duration when --wav is not set.",
-    )
+    rx_parser.add_argument("--record-seconds", type=float, default=None, help="Live record duration when --wav is not set.")
+    rx_parser.add_argument("--coarse-freq-search-hz", type=float, default=0.0, help="Enable FFT-based coarse LO-offset search up to +/-N Hz.")
     return parser
 
 
 def _make_config(args: argparse.Namespace) -> ModemConfig:
     tone_spacing = args.tone_spacing if args.tone_spacing is not None else args.baud
+    coarse = getattr(args, "coarse_freq_search_hz", 0.0)
     return ModemConfig(
         waveform=WaveformConfig(baud=args.baud, sample_rate=args.sample_rate, tone_spacing_hz=tone_spacing),
-        preamble_length=args.preamble_length,
-        payload_repeats=args.payload_repeats,
         rs_data_bytes=args.rs_data_bytes,
         rs_parity_bytes=args.rs_parity_bytes,
         rs_crc_enabled=args.rs_crc_enabled,
+        sync_every_blocks=args.sync_every_blocks,
+        coarse_frequency_search_hz=coarse,
     )
 
 
@@ -94,11 +90,12 @@ def _run_rx(args: argparse.Namespace) -> int:
 
         samples = record(args.record_seconds, config.waveform.sample_rate)
 
-    decoded = decode(np.asarray(samples), config, payload_length_bytes=args.length)
+    decoded = decode(np.asarray(samples), config)
+    output = decoded.rstrip(b"\x00")  # strip trailing NUL padding, same as minimodem-rs
     if args.output is not None:
-        args.output.write_bytes(decoded)
+        args.output.write_bytes(output)
     else:
-        sys.stdout.buffer.write(decoded)
+        sys.stdout.buffer.write(output)
     return 0
 
 
