@@ -1,38 +1,60 @@
-"""Bit-transport abstraction.
+"""Transport abstractions.
 
-The framing layer (PN sync, RS blocks, repetition) is expressed in terms of a
-bit stream in and a bit stream out. The transport is whatever moves those bits
-between two endpoints — today that's a minimodem subprocess; tomorrow it will
-be a bespoke modem. Keep this interface small so the swap is drop-in.
+Two shapes:
 
-Bits are represented as ``bytes`` where each byte is 0 or 1. That's more
-verbose than bit-packing, but it keeps every downstream operator (PN correlator,
-frame slicer, simulator) trivial and index-friendly. Byte-packing is a
-premature optimisation until profiling says otherwise.
+* ``BitTransport`` — a streaming bit pipe. Suits async modems like minimodem
+  where bits trickle in continuously and framing sits *above* the transport.
+* ``PacketTransport`` — a fixed-size byte-packet pipe. Suits the weaklink
+  modem, which needs a preamble on every burst so it can only send/receive in
+  whole frames.
+
+The two are different enough that a single protocol was more trouble than it
+was worth. The framing layer above them chooses one or the other; nothing
+mandates that a given deployment uses both.
 """
 
 from __future__ import annotations
 
 import os
 import subprocess
+from pathlib import Path
 from typing import Iterable, Iterator, Protocol
+
+import numpy as np
+
+
+# --- streaming bit interface ----------------------------------------------
 
 
 class BitTransport(Protocol):
-    """One-way bit pipe. Instantiate one for TX, one for RX."""
+    """One-way streaming bit pipe."""
 
     def send(self, bits: Iterable[int]) -> None:
-        """Modulate and transmit an iterable of 0/1 bits. Blocks until drained."""
+        ...
 
     def recv(self) -> Iterator[int]:
-        """Yield demodulated hard-decision bits (0/1) as they arrive."""
+        ...
 
 
-# --- minimodem-backed implementation --------------------------------------
+# --- packet interface -----------------------------------------------------
+
+
+class PacketTransport(Protocol):
+    """One-way pipe carrying fixed-size byte packets."""
+
+    payload_bytes: int
+
+    def send(self, payload: bytes) -> None:
+        ...
+
+    def recv(self) -> bytes:
+        ...
+
+
+# --- shared helpers -------------------------------------------------------
 
 
 def _child_env_without_pyinstaller_leak() -> dict[str, str]:
-    """Same guard as minimodem_rs: strip PyInstaller's LD_LIBRARY_PATH leak."""
     env = os.environ.copy()
     for variable_name in ("LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH"):
         original = env.pop(f"{variable_name}_ORIG", None)
@@ -43,14 +65,11 @@ def _child_env_without_pyinstaller_leak() -> dict[str, str]:
     return env
 
 
-class MinimodemTransport:
-    """Bit pipe backed by a ``minimodem`` subprocess.
+# --- minimodem-backed BitTransport ---------------------------------------
 
-    Uses ``--binary-output``/``--binary-raw 1`` where available so we get a raw
-    unframed bit stream rather than 8-N-1 async-framed bytes. Falls back to
-    packing bits 8-per-byte for older minimodem builds; the framing layer is
-    tolerant either way because we always search on a bit-level correlator.
-    """
+
+class MinimodemTransport:
+    """Bit pipe backed by a ``minimodem`` subprocess."""
 
     def __init__(self, direction: str, baud: int | str, *, minimodem_binary: str = "minimodem", extra_args: list[str] | None = None):
         if direction not in ("tx", "rx"):
@@ -68,9 +87,7 @@ class MinimodemTransport:
     def send(self, bits: Iterable[int]) -> None:
         assert self._direction == "tx"
         proc = subprocess.Popen(
-            self._argv(),
-            stdin=subprocess.PIPE,
-            env=_child_env_without_pyinstaller_leak(),
+            self._argv(), stdin=subprocess.PIPE, env=_child_env_without_pyinstaller_leak(),
         )
         assert proc.stdin is not None
         buffer = bytearray()
@@ -88,9 +105,7 @@ class MinimodemTransport:
     def recv(self) -> Iterator[int]:
         assert self._direction == "rx"
         proc = subprocess.Popen(
-            self._argv(),
-            stdout=subprocess.PIPE,
-            env=_child_env_without_pyinstaller_leak(),
+            self._argv(), stdout=subprocess.PIPE, env=_child_env_without_pyinstaller_leak(),
         )
         assert proc.stdout is not None
         self._proc = proc
@@ -103,3 +118,60 @@ class MinimodemTransport:
                     yield 1 if byte else 0
         finally:
             proc.terminate()
+
+
+# --- weaklink-modem-backed PacketTransport --------------------------------
+
+
+class AudioModemTransport:
+    """Packet pipe using the weaklink 4-FSK+Viterbi modem over audio.
+
+    Sink is either a live audio device (PulseAudio via sounddevice) or a WAV
+    file. Source, symmetrically, is a live device or a WAV file. Live paths
+    are one-shot per ``send``/``recv``; WAV paths write / read the whole file.
+    """
+
+    def __init__(
+        self,
+        *,
+        payload_bytes: int,
+        modem_config: "ModemConfig | None" = None,
+        wav_path: Path | str | None = None,
+        record_duration_seconds: float | None = None,
+    ):
+        from weaklink.modem.codec import ModemConfig as _ModemConfig
+
+        self.payload_bytes = payload_bytes
+        self._config = modem_config or _ModemConfig()
+        self._wav_path = Path(wav_path) if wav_path is not None else None
+        self._record_duration = record_duration_seconds
+
+    def send(self, payload: bytes) -> None:
+        if len(payload) != self.payload_bytes:
+            raise ValueError(f"payload must be exactly {self.payload_bytes} bytes, got {len(payload)}")
+        from weaklink.modem.codec import encode
+
+        samples = encode(payload, self._config)
+        if self._wav_path is not None:
+            from weaklink.modem.audio import write_wav
+
+            write_wav(self._wav_path, samples, self._config.waveform.sample_rate)
+        else:
+            from weaklink.modem.audio import play
+
+            play(samples, self._config.waveform.sample_rate)
+
+    def recv(self) -> bytes:
+        from weaklink.modem.codec import decode
+
+        if self._wav_path is not None:
+            from weaklink.modem.audio import read_wav
+
+            samples, _ = read_wav(self._wav_path, expected_sample_rate=self._config.waveform.sample_rate)
+        else:
+            if self._record_duration is None:
+                raise ValueError("live recv requires record_duration_seconds")
+            from weaklink.modem.audio import record
+
+            samples = record(self._record_duration, self._config.waveform.sample_rate)
+        return decode(np.asarray(samples), self._config, payload_length_bytes=self.payload_bytes)

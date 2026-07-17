@@ -9,6 +9,8 @@ packages = [{ include = "minimodem_rs" }, { include = "weaklink" }]
 python = "^3.10"
 reedsolo = "^1.7.0"
 numpy = "^2.0"
+soundfile = "^0.12"
+sounddevice = "^0.5"
 
 [tool.poetry.group.dev.dependencies]
 black = "26.3.1"
@@ -22,6 +24,7 @@ setuptools = "82.0.1"
 [tool.poetry.scripts]
 minimodem-rs = "minimodem_rs.main:main"
 weaklink = "weaklink.cli:main"
+weaklink-modem = "weaklink.modem.cli:main"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
