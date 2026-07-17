@@ -4,6 +4,12 @@ Byte-side I/O is always stdin/stdout — use shell redirection for files or
 pipes. Sample-side I/O is either a WAV file (``--modem-wav``) or the default
 live audio device.
 
+Presets: for each tested baud in ``BAUD_PRESETS`` (9, 45, 300, 1200) the RS
+config, block-repeat count, and sync marker density default to the values
+that measured best in the AWGN benchmark. Any explicit ``--modem-*`` flag
+overrides the preset. Off-preset baud rates fall back to the 300-baud
+preset with a stderr warning.
+
     echo -n "hello over air" | weaklink-modem tx --modem-wav out.wav
     cat message.txt         | weaklink-modem tx                     # live TX
     weaklink-modem rx --modem-wav out.wav > received.bin
@@ -21,8 +27,25 @@ from weaklink.modem.codec import ModemConfig, decode, encode
 from weaklink.modem.waveform import WaveformConfig
 
 
+# Per-baud preset: RS parameters, block repetition, sync marker density
+# picked from the measured AWGN benchmark cliff-optimum for each tested baud.
+# Off-preset baud rates fall back to the 300-baud preset with a warning.
+BAUD_PRESETS: dict[float, dict[str, int]] = {
+    9.0:    dict(rs_data_bytes=16, rs_parity_bytes=8,  block_repeats=2, sync_every_blocks=4),
+    45.0:   dict(rs_data_bytes=32, rs_parity_bytes=8,  block_repeats=2, sync_every_blocks=4),
+    300.0:  dict(rs_data_bytes=16, rs_parity_bytes=8,  block_repeats=1, sync_every_blocks=4),
+    1200.0: dict(rs_data_bytes=16, rs_parity_bytes=8,  block_repeats=1, sync_every_blocks=4),
+}
+FALLBACK_PRESET_BAUD: float = 300.0
+
+
 def _add_modem_args(sub: argparse.ArgumentParser) -> None:
-    """All modem-side knobs. ``--modem-*``."""
+    """All modem-side knobs. ``--modem-*``.
+
+    Presetable knobs default to ``None`` at the CLI layer so we can detect
+    "user didn't set this" and fill from ``BAUD_PRESETS`` instead. Explicit
+    ``--modem-*`` values still win.
+    """
     modem = sub.add_argument_group("modem", "modem-layer configuration + sample-side I/O")
     modem.add_argument("--modem-baud", type=float, default=300.0, dest="modem_baud")
     modem.add_argument("--modem-sample-rate", type=float, default=48_000.0, dest="modem_sample_rate")
@@ -31,10 +54,22 @@ def _add_modem_args(sub: argparse.ArgumentParser) -> None:
         type=float,
         default=None,
         dest="modem_tone_spacing",
-        help="Tone spacing in Hz. Defaults to --modem-baud (Nyquist optimum for non-coherent 4-FSK).",
+        help="Base tone-spacing unit in Hz. Defaults to --modem-baud.",
     )
-    modem.add_argument("--modem-rs-data-bytes", type=int, default=16, dest="modem_rs_data_bytes")
-    modem.add_argument("--modem-rs-parity-bytes", type=int, default=8, dest="modem_rs_parity_bytes")
+    modem.add_argument(
+        "--modem-rs-data-bytes",
+        type=int,
+        default=None,
+        dest="modem_rs_data_bytes",
+        help="RS data bytes per block. Preset default depends on --modem-baud.",
+    )
+    modem.add_argument(
+        "--modem-rs-parity-bytes",
+        type=int,
+        default=None,
+        dest="modem_rs_parity_bytes",
+        help="RS parity bytes per block. Preset default depends on --modem-baud.",
+    )
     modem.add_argument(
         "--modem-no-rs-crc",
         dest="modem_rs_crc_enabled",
@@ -45,17 +80,16 @@ def _add_modem_args(sub: argparse.ArgumentParser) -> None:
     modem.add_argument(
         "--modem-sync-every-blocks",
         type=int,
-        default=4,
+        default=None,
         dest="modem_sync_every_blocks",
-        help="Preamble inserted every N data blocks (default 4).",
+        help="Preamble inserted every N data blocks. Preset default: 4.",
     )
     modem.add_argument(
         "--modem-block-repeats",
         type=int,
-        default=1,
+        default=None,
         dest="modem_block_repeats",
-        help="Each block transmitted N times, round-robin (default 1). "
-        "~3 dB per doubling in AWGN plus burst-fade diversity.",
+        help="Each block transmitted N times, round-robin. Preset default depends on --modem-baud.",
     )
     modem.add_argument(
         "--modem-wav",
@@ -76,19 +110,37 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _pick_preset(baud: float) -> dict[str, int]:
+    """Look up the preset for ``baud``; fall back to the 300-baud preset with a warning."""
+    if baud in BAUD_PRESETS:
+        return BAUD_PRESETS[baud]
+    print(
+        f"weaklink-modem: warning: baud {baud} is not in the tested preset set "
+        f"{sorted(BAUD_PRESETS.keys())!s}; falling back to the {FALLBACK_PRESET_BAUD:g}-baud "
+        f"preset. Override any modem knob explicitly to silence this.",
+        file=sys.stderr,
+    )
+    return BAUD_PRESETS[FALLBACK_PRESET_BAUD]
+
+
 def _make_config(args: argparse.Namespace) -> ModemConfig:
+    preset = _pick_preset(args.modem_baud)
     tone_spacing = args.modem_tone_spacing if args.modem_tone_spacing is not None else args.modem_baud
+    rs_data_bytes = args.modem_rs_data_bytes if args.modem_rs_data_bytes is not None else preset["rs_data_bytes"]
+    rs_parity_bytes = args.modem_rs_parity_bytes if args.modem_rs_parity_bytes is not None else preset["rs_parity_bytes"]
+    sync_every = args.modem_sync_every_blocks if args.modem_sync_every_blocks is not None else preset["sync_every_blocks"]
+    block_repeats = args.modem_block_repeats if args.modem_block_repeats is not None else preset["block_repeats"]
     return ModemConfig(
         waveform=WaveformConfig(
             baud=args.modem_baud,
             sample_rate=args.modem_sample_rate,
             tone_spacing_hz=tone_spacing,
         ),
-        rs_data_bytes=args.modem_rs_data_bytes,
-        rs_parity_bytes=args.modem_rs_parity_bytes,
+        rs_data_bytes=rs_data_bytes,
+        rs_parity_bytes=rs_parity_bytes,
         rs_crc_enabled=args.modem_rs_crc_enabled,
-        sync_every_blocks=args.modem_sync_every_blocks,
-        block_repeats=args.modem_block_repeats,
+        sync_every_blocks=sync_every,
+        block_repeats=block_repeats,
     )
 
 

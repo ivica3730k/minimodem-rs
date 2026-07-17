@@ -30,24 +30,35 @@ import numpy as np
 BITS_PER_SYMBOL = 2
 NUM_TONES = 4  # 2 ** BITS_PER_SYMBOL
 
+# Optimal 4-mark Golomb ruler: all pairwise frequency differences are distinct,
+# so 3rd-order intermodulation products (2f_a - f_b) never land on other tones.
+# Trade: total spread is 6 x tone_spacing_hz (vs 3 x for uniform 4-FSK), so
+# the tone stack is ~2x wider on the wire.
+GOLOMB_4_OFFSETS: tuple[float, ...] = (0.0, 1.0, 4.0, 6.0)
+_GOLOMB_4_MEAN: float = sum(GOLOMB_4_OFFSETS) / len(GOLOMB_4_OFFSETS)
+
 
 @dataclass(frozen=True)
 class WaveformConfig:
     baud: float = 300.0
     sample_rate: float = 48_000.0
     center_hz: float = 1_500.0
-    """Centre of the 4-tone stack in the SSB passband."""
+    """Centre of the 4-tone stack in the audio passband."""
     tone_spacing_hz: float = 300.0
-    """Spacing between adjacent tones. For 300 baud the orthogonality floor is
-    150 Hz coherent / 300 Hz non-coherent; we sit at the non-coherent floor."""
+    """Base spacing unit. Actual tone frequencies sit at Golomb-ruler offsets
+    ``center_hz + (offset - mean) * tone_spacing_hz`` for offset in
+    ``{0, 1, 4, 6}``. Minimum tone-to-tone spacing equals ``tone_spacing_hz``;
+    total stack span is ``6 * tone_spacing_hz``."""
     amplitude: float = 0.25
     """Peak amplitude, well under 1.0 to leave headroom in WAV / audio devices."""
 
     tones_hz: tuple[float, ...] = field(init=False)
 
     def __post_init__(self) -> None:
-        first = self.center_hz - (NUM_TONES - 1) * self.tone_spacing_hz / 2.0
-        tones = tuple(first + i * self.tone_spacing_hz for i in range(NUM_TONES))
+        tones = tuple(
+            self.center_hz + (offset - _GOLOMB_4_MEAN) * self.tone_spacing_hz
+            for offset in GOLOMB_4_OFFSETS
+        )
         object.__setattr__(self, "tones_hz", tones)
         if self.samples_per_symbol < 8:
             raise ValueError("sample_rate / baud must be >= 8 samples per symbol")

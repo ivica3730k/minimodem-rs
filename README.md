@@ -74,45 +74,45 @@ Streaming modem. Payload: 100 random-ASCII bytes. Sync every 4 data blocks. Refe
 
 | Baud | RS | Block repeats | Throughput | Info rate | Our cliff | Shannon | Gap |
 |---:|---|---:|---|---:|---:|---:|---:|
-| 45 | RS(28,16) | 1&times; | 100 chars in 42.0 s | 19.1 bit/s | **-12 dB** | -23.6 dB | 11.6 dB |
-| 45 | RS(28,16) | 2&times; | 100 chars in 81.8 s | 9.8 bit/s | **-12 dB** | -26.5 dB | 14.5 dB |
-| 45 | RS(28,16) | 4&times; | 100 chars in 161.5 s | 5.0 bit/s | **-12 dB** | -29.4 dB | 17.4 dB |
+| 45 | RS(28,16) | 1&times; | 100 chars in 42.0 s | 19.1 bit/s | **-10 dB** | -23.6 dB | 13.6 dB |
+| 45 | RS(28,16) | 2&times; | 100 chars in 81.8 s | 9.8 bit/s | **-11 dB** | -26.5 dB | 15.5 dB |
+| 45 | RS(28,16) | 4&times; | 100 chars in 161.5 s | 5.0 bit/s | **-10 dB** | -29.4 dB | 19.4 dB |
 | 45 | RS(44,32) | 1&times; | 100 chars in 35.6 s | 22.5 bit/s | **-12 dB** | -22.8 dB | 10.8 dB |
-| 45 | RS(44,32) | 2&times; | 100 chars in 69.7 s | 11.5 bit/s | **-14 dB** | -25.8 dB | 11.8 dB |
-| 45 | RS(44,32) | 4&times; | 100 chars in 138.0 s | 5.8 bit/s | **-12 dB** | -28.7 dB | 16.7 dB |
+| 45 | RS(44,32) | 2&times; | 100 chars in 69.7 s | 11.5 bit/s | **-11 dB** | -25.8 dB | 14.8 dB |
+| 45 | RS(44,32) | 4&times; | 100 chars in 138.0 s | 5.8 bit/s | **-11 dB** | -28.7 dB | 17.7 dB |
 | 45 | RS(164,128) | 1&times; | 100 chars in 32.7 s | 24.4 bit/s | **-12 dB** | -22.5 dB | 10.5 dB |
 | 45 | RS(164,128) | 2&times; | 100 chars in 64.0 s | 12.5 bit/s | **-11 dB** | -25.4 dB | 14.4 dB |
-| 45 | RS(164,128) | 4&times; | 100 chars in 126.6 s | 6.3 bit/s | **-12 dB** | -28.4 dB | 16.4 dB |
-| 100 | RS(28,16) | 1&times; | 100 chars in 18.9 s | 42.4 bit/s | **-9 dB** | -20.1 dB | 11.1 dB |
-| 100 | RS(28,16) | 2&times; | 100 chars in 36.8 s | 21.7 bit/s | **-8 dB** | -23.0 dB | 15.0 dB |
-| 100 | RS(28,16) | 4&times; | 100 chars in 72.6 s | 11.0 bit/s | **-8 dB** | -25.9 dB | 17.9 dB |
-| 100 | RS(44,32) | 1&times; | 100 chars in 16.0 s | 50.0 bit/s | **-6 dB** | -19.3 dB | 13.3 dB |
-| 100 | RS(44,32) | 2&times; | 100 chars in 31.4 s | 25.5 bit/s | **-9 dB** | -22.3 dB | 13.3 dB |
-| 100 | RS(44,32) | 4&times; | 100 chars in 62.1 s | 12.9 bit/s | **-9 dB** | -25.3 dB | 16.3 dB |
+| 45 | RS(164,128) | 4&times; | 100 chars in 126.6 s | 6.3 bit/s | **-10 dB** | -28.4 dB | 18.4 dB |
+| 100 | RS(28,16) | 1&times; | 100 chars in 18.9 s | 42.4 bit/s | **-8 dB** | -20.1 dB | 12.1 dB |
+| 100 | RS(28,16) | 2&times; | 100 chars in 36.8 s | 21.7 bit/s | **-7 dB** | -23.0 dB | 16.0 dB |
+| 100 | RS(28,16) | 4&times; | 100 chars in 72.6 s | 11.0 bit/s | **-6 dB** | -25.9 dB | 19.9 dB |
+| 100 | RS(44,32) | 1&times; | 100 chars in 16.0 s | 50.0 bit/s | **-8 dB** | -19.3 dB | 11.3 dB |
+| 100 | RS(44,32) | 2&times; | 100 chars in 31.4 s | 25.5 bit/s | **-10 dB** | -22.3 dB | 12.3 dB |
+| 100 | RS(44,32) | 4&times; | 100 chars in 62.1 s | 12.9 bit/s | **-7 dB** | -25.3 dB | 18.3 dB |
 | 100 | RS(164,128) | 1&times; | 100 chars in 14.7 s | 54.3 bit/s | **-9 dB** | -19.0 dB | 10.0 dB |
 | 100 | RS(164,128) | 2&times; | 100 chars in 28.8 s | 27.8 bit/s | **-9 dB** | -21.9 dB | 12.9 dB |
-| 100 | RS(164,128) | 4&times; | 100 chars in 57.0 s | 14.0 bit/s | **-8 dB** | -24.9 dB | 16.9 dB |
+| 100 | RS(164,128) | 4&times; | 100 chars in 57.0 s | 14.0 bit/s | **-7 dB** | -24.9 dB | 17.9 dB |
 | 300 | RS(28,16) | 1&times; | 100 chars in 6.3 s | 127.1 bit/s | **-3 dB** | -15.3 dB | 12.3 dB |
 | 300 | RS(28,16) | 2&times; | 100 chars in 12.3 s | 65.2 bit/s | **-2 dB** | -18.2 dB | 16.2 dB |
 | 300 | RS(28,16) | 4&times; | 100 chars in 24.2 s | 33.0 bit/s | **-3 dB** | -21.2 dB | 18.2 dB |
-| 300 | RS(44,32) | 1&times; | 100 chars in 5.3 s | 150.0 bit/s | **-2 dB** | -14.5 dB | 12.5 dB |
+| 300 | RS(44,32) | 1&times; | 100 chars in 5.3 s | 150.0 bit/s | **-4 dB** | -14.5 dB | 10.5 dB |
 | 300 | RS(44,32) | 2&times; | 100 chars in 10.5 s | 76.5 bit/s | **-4 dB** | -17.5 dB | 13.5 dB |
-| 300 | RS(44,32) | 4&times; | 100 chars in 20.7 s | 38.7 bit/s | **-4 dB** | -20.5 dB | 16.5 dB |
+| 300 | RS(44,32) | 4&times; | 100 chars in 20.7 s | 38.7 bit/s | **-3 dB** | -20.5 dB | 17.5 dB |
 | 300 | RS(164,128) | 1&times; | 100 chars in 4.9 s | 163.0 bit/s | **-4 dB** | -14.2 dB | 10.2 dB |
-| 300 | RS(164,128) | 2&times; | 100 chars in 9.6 s | 83.3 bit/s | **-5 dB** | -17.1 dB | 12.1 dB |
+| 300 | RS(164,128) | 2&times; | 100 chars in 9.6 s | 83.3 bit/s | **-6 dB** | -17.1 dB | 11.1 dB |
 | 300 | RS(164,128) | 4&times; | 100 chars in 19.0 s | 42.1 bit/s | **-5 dB** | -20.1 dB | 15.1 dB |
-| 1200 | RS(28,16) | 1&times; | 100 chars in 1.6 s | 508.5 bit/s | **+7 dB** | -9.0 dB | 16.0 dB |
-| 1200 | RS(28,16) | 2&times; | 100 chars in 3.1 s | 260.9 bit/s | **+5 dB** | -12.1 dB | 17.1 dB |
-| 1200 | RS(28,16) | 4&times; | 100 chars in 6.1 s | 132.2 bit/s | **+3 dB** | -15.1 dB | 18.1 dB |
+| 1200 | RS(28,16) | 1&times; | 100 chars in 1.6 s | 508.5 bit/s | **+3 dB** | -9.0 dB | 12.0 dB |
+| 1200 | RS(28,16) | 2&times; | 100 chars in 3.1 s | 260.9 bit/s | **+3 dB** | -12.1 dB | 15.1 dB |
+| 1200 | RS(28,16) | 4&times; | 100 chars in 6.1 s | 132.2 bit/s | **+4 dB** | -15.1 dB | 19.1 dB |
 | 1200 | RS(44,32) | 1&times; | 100 chars in 1.3 s | 600.0 bit/s | **+3 dB** | -8.3 dB | 11.3 dB |
-| 1200 | RS(44,32) | 2&times; | 100 chars in 2.6 s | 306.1 bit/s | **+3 dB** | -11.3 dB | 14.3 dB |
-| 1200 | RS(44,32) | 4&times; | 100 chars in 5.2 s | 154.6 bit/s | **+3 dB** | -14.4 dB | 17.4 dB |
-| 1200 | RS(164,128) | 1&times; | 100 chars in 1.2 s | 652.2 bit/s | **+3 dB** | -7.9 dB | 10.9 dB |
-| 1200 | RS(164,128) | 2&times; | 100 chars in 2.4 s | 333.3 bit/s | **+5 dB** | -11.0 dB | 16.0 dB |
+| 1200 | RS(44,32) | 2&times; | 100 chars in 2.6 s | 306.1 bit/s | **+5 dB** | -11.3 dB | 16.3 dB |
+| 1200 | RS(44,32) | 4&times; | 100 chars in 5.2 s | 154.6 bit/s | **+6 dB** | -14.4 dB | 20.4 dB |
+| 1200 | RS(164,128) | 1&times; | 100 chars in 1.2 s | 652.2 bit/s | **+2 dB** | -7.9 dB | 9.9 dB |
+| 1200 | RS(164,128) | 2&times; | 100 chars in 2.4 s | 333.3 bit/s | **+3 dB** | -11.0 dB | 14.0 dB |
 | 1200 | RS(164,128) | 4&times; | 100 chars in 4.7 s | 168.5 bit/s | **+3 dB** | -14.0 dB | 17.0 dB |
 | 9 | RS(28,16) | 1&times; | 20 chars in 64.0 s<br/><sub>9 baud floor, 20-byte payload, 1x repeat</sub> | 2.5 bit/s | **-19 dB** | -32.4 dB | 13.4 dB |
 | 9 | RS(28,16) | 2&times; | 20 chars in 120.9 s<br/><sub>9 baud floor, 20-byte payload, 2x repeat</sub> | 1.3 bit/s | **-20 dB** | -35.1 dB | 15.1 dB |
-| 9 | RS(28,16) | 4&times; | 20 chars in 234.7 s<br/><sub>9 baud floor, 20-byte payload, 4x repeat</sub> | 0.7 bit/s | **-19 dB** | -38.0 dB | 19.0 dB |
+| 9 | RS(28,16) | 4&times; | 20 chars in 234.7 s<br/><sub>9 baud floor, 20-byte payload, 4x repeat</sub> | 0.7 bit/s | **-20 dB** | -38.0 dB | 18.0 dB |
 
 <!-- BENCHMARK RESULTS END -->
 
