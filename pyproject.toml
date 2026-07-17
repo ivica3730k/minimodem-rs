@@ -25,6 +25,7 @@ setuptools = "82.0.1"
 minimodem-rs = "minimodem_rs.main:main"
 weaklink = "weaklink.cli:main"
 weaklink-modem = "weaklink.modem.cli:main"
+weaklink-benchmark = "weaklink.benchmark:main"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
