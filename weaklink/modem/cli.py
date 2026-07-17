@@ -34,6 +34,9 @@ def _build_parser() -> argparse.ArgumentParser:
         sub.add_argument("--no-rs-crc", dest="rs_crc_enabled", action="store_false", default=True)
         sub.add_argument("--sync-every", type=int, default=4, dest="sync_every_blocks",
                          help="Preamble inserted every N data blocks (default 4).")
+        sub.add_argument("--block-repeat", type=int, default=1, dest="block_repeats",
+                         help="Each block transmitted N times, round-robin (default 1). "
+                              "3 dB per doubling in AWGN, plus burst-fade diversity.")
         sub.add_argument("--wav", type=Path, help="Read from / write to a WAV file instead of the audio device.")
 
     tx_parser = subparsers.choices["tx"]
@@ -55,6 +58,7 @@ def _make_config(args: argparse.Namespace) -> ModemConfig:
         rs_parity_bytes=args.rs_parity_bytes,
         rs_crc_enabled=args.rs_crc_enabled,
         sync_every_blocks=args.sync_every_blocks,
+        block_repeats=args.block_repeats,
         coarse_frequency_search_hz=coarse,
     )
 

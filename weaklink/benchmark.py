@@ -35,7 +35,8 @@ PAYLOAD_BYTES: int = 100
 PAYLOAD_SEED: int = 0
 BAUDS: tuple[int, ...] = (45, 100, 300, 1200)
 RS_CONFIGS: tuple[tuple[int, int], ...] = ((16, 8), (32, 8), (128, 32))
-SYNC_EVERY: tuple[int, ...] = (2, 4, 8)
+BLOCK_REPEATS: tuple[int, ...] = (1, 2, 4)
+SYNC_EVERY_FIXED: int = 4
 
 
 @dataclass
@@ -43,7 +44,8 @@ class Config:
     baud: int
     rs_data: int
     rs_parity: int
-    sync_every: int
+    block_repeats: int
+    sync_every: int = SYNC_EVERY_FIXED
     payload_bytes: int = PAYLOAD_BYTES
     note: str = ""
 
@@ -54,6 +56,7 @@ class Config:
             rs_parity_bytes=self.rs_parity,
             rs_crc_enabled=True,
             sync_every_blocks=self.sync_every,
+            block_repeats=self.block_repeats,
         )
 
     def rs_label(self) -> str:
@@ -104,6 +107,7 @@ def _find_cliff(config: Config, *, trials: int, payload: bytes) -> Result:
                 config.baud * 1_000_003
                 + config.rs_data * 71
                 + config.sync_every * 13
+                + config.block_repeats * 97
                 + trial * 31
                 + int(snr_db * 10)
             )
@@ -134,18 +138,24 @@ def _enumerate_configs() -> list[Config]:
     configs: list[Config] = []
     for baud in BAUDS:
         for rs_data, rs_parity in RS_CONFIGS:
-            for sync_every in SYNC_EVERY:
+            for block_repeats in BLOCK_REPEATS:
                 configs.append(
-                    Config(baud=baud, rs_data=rs_data, rs_parity=rs_parity, sync_every=sync_every)
+                    Config(
+                        baud=baud,
+                        rs_data=rs_data,
+                        rs_parity=rs_parity,
+                        block_repeats=block_repeats,
+                    )
                 )
     return configs
 
 
 def format_table(results: list[Result]) -> str:
     header = [
-        f"Streaming modem. Payload: {PAYLOAD_BYTES} random-ASCII bytes. Reference bandwidth: 3 kHz.",
+        f"Streaming modem. Payload: {PAYLOAD_BYTES} random-ASCII bytes. Sync every "
+        f"{SYNC_EVERY_FIXED} data blocks. Reference bandwidth: 3 kHz.",
         "",
-        "| Baud | RS | Sync every | Throughput | Info rate | Our cliff | Shannon | Gap |",
+        "| Baud | RS | Block repeats | Throughput | Info rate | Our cliff | Shannon | Gap |",
         "|---:|---|---:|---|---:|---:|---:|---:|",
     ]
     rows = []
@@ -160,7 +170,7 @@ def format_table(results: list[Result]) -> str:
         if r.config.note:
             throughput = f"{throughput}<br/><sub>{r.config.note}</sub>"
         rows.append(
-            f"| {r.config.baud} | {r.config.rs_label()} | {r.config.sync_every} | "
+            f"| {r.config.baud} | {r.config.rs_label()} | {r.config.block_repeats}&times; | "
             f"{throughput} | {r.info_rate_bit_per_s:.1f} bit/s | {cliff_text} | "
             f"{r.shannon_snr_db:+.1f} dB | {gap_text} |"
         )
@@ -203,7 +213,7 @@ def main(argv: list[str] | None = None) -> int:
         cliff = f"{result.cliff_snr_db:+.0f} dB" if result.cliff_snr_db is not None else "no decode"
         print(
             f"[{elapsed:5.1f}s] baud={config.baud:>4} {config.rs_label():>13} "
-            f"sync_every={config.sync_every:>2}  duration={result.duration_seconds:6.1f}s  "
+            f"repeats={config.block_repeats}x  duration={result.duration_seconds:6.1f}s  "
             f"info={result.info_rate_bit_per_s:7.1f} bit/s  cliff={cliff:>9s}  "
             f"shannon={result.shannon_snr_db:+.1f} dB"
         )

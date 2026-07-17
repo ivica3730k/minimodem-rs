@@ -75,18 +75,27 @@ class ModemConfig:
     rs_crc_enabled: bool = True
     sync_every_blocks: int = 4
     """Preamble inserted at the start and every N data blocks thereafter."""
+    block_repeats: int = 1
+    """Each RS block is transmitted this many times, round-robin across the
+    current sync group. RX averages symbol magnitudes across copies before
+    Viterbi+RS. Gives ~3 dB per doubling in AWGN; time-diversity across
+    ``sync_every_blocks`` positions helps against burst fades too.
+    """
     coarse_frequency_search_hz: float = 0.0
     frequency_search_hz: float = 20.0
     frequency_resolution_hz: float = 1.0
-    preamble_min_score_ratio: float = 0.5
+    preamble_min_score_ratio: float = 0.7
     """Preamble correlator threshold, as a fraction of the peak preamble score
-    on a clean signal. Below this, a candidate offset is considered noise."""
+    on this transmission. Below this, a candidate offset is considered noise.
+    Higher = fewer false positives, more risk of missing weak preambles."""
 
     def __post_init__(self) -> None:
         if self.sync_every_blocks < 1:
             raise ValueError("sync_every_blocks must be >= 1")
         if self.rs_data_bytes < 1:
             raise ValueError("rs_data_bytes must be >= 1")
+        if self.block_repeats < 1:
+            raise ValueError("block_repeats must be >= 1")
 
     def rs_codec(self) -> RSBlockCodec:
         return RSBlockCodec(
@@ -141,8 +150,18 @@ def encode(input_bytes: bytes, config: ModemConfig) -> np.ndarray:
     """Encode arbitrary-length bytes into a float32 audio stream.
 
     Input is padded up to the next ``rs_data_bytes`` boundary with zeros.
-    Emits ``[preamble][sync_every_blocks data blocks][preamble]...`` with a
-    trailing preamble so the last group is bracketed.
+    Emits ``[preamble][group of M data blocks, round-robin repeated R times]``
+    per sync period; where M = sync_every_blocks (or fewer for the trailing
+    group) and R = block_repeats. Round-robin order interleaves copies so a
+    burst affecting one copy's time-slot leaves the other copies intact.
+
+    Frame::
+
+        [preamble] [b1 b2 ... bM b1 b2 ... bM ...]    <- R copies, round-robin
+                    group repeated R times back-to-back
+        [preamble] [b(M+1) ... b(2M) ...]
+        ...
+        [preamble] (trailing)
     """
     codec = config.rs_codec()
     data_bytes = codec.config.data_bytes
@@ -151,12 +170,23 @@ def encode(input_bytes: bytes, config: ModemConfig) -> np.ndarray:
         input_bytes = input_bytes + b"\x00" * (data_bytes - remainder)
 
     pre = preamble_symbols()
+    total_blocks = len(input_bytes) // data_bytes
+    group_size = config.sync_every_blocks
+    repeats = config.block_repeats
+
     symbol_pieces: list[np.ndarray] = []
-    for block_index in range(len(input_bytes) // data_bytes):
-        if block_index % config.sync_every_blocks == 0:
-            symbol_pieces.append(pre)
-        chunk = input_bytes[block_index * data_bytes : (block_index + 1) * data_bytes]
-        symbol_pieces.append(_encode_one_block(chunk, config))
+    for group_start in range(0, total_blocks, group_size):
+        group_end = min(group_start + group_size, total_blocks)
+        group_symbols = [
+            _encode_one_block(
+                input_bytes[block_index * data_bytes : (block_index + 1) * data_bytes],
+                config,
+            )
+            for block_index in range(group_start, group_end)
+        ]
+        symbol_pieces.append(pre)
+        for _copy in range(repeats):
+            symbol_pieces.extend(group_symbols)
     symbol_pieces.append(pre)  # trailing marker
 
     all_symbols = np.concatenate(symbol_pieces) if symbol_pieces else np.zeros(0, dtype=np.int8)
@@ -181,34 +211,61 @@ def decode(samples: np.ndarray, config: ModemConfig) -> bytes:
 
     preamble = preamble_symbols()
     peaks = _find_preamble_peaks(magnitudes, preamble, config)
-    if len(peaks) < 2:
+    if not peaks:
         return b""
+    # Treat end-of-signal as an implicit trailing sync boundary so the last
+    # group is decoded even if its trailing preamble was corrupted.
+    peaks_with_end = peaks + [magnitudes.shape[0]]
 
     codec = config.rs_codec()
     block_length = _block_symbol_length(config)
+    repeats = config.block_repeats
     output = bytearray()
-    for peak_index in range(len(peaks) - 1):
-        group_start = peaks[peak_index] + len(preamble)
-        group_end = peaks[peak_index + 1]
+    for peak_index in range(len(peaks_with_end) - 1):
+        group_start = peaks_with_end[peak_index] + len(preamble)
+        group_end = peaks_with_end[peak_index + 1]
         span = group_end - group_start
-        num_blocks = span // block_length
-        for block_index in range(num_blocks):
-            block_start = group_start + block_index * block_length
-            block_mags = magnitudes[block_start : block_start + block_length]
-            decoded = _decode_one_block(block_mags, config, codec)
+        transmitted_blocks = span // block_length
+        if transmitted_blocks == 0:
+            continue
+        # Round-robin: M logical blocks repeated R times. transmitted = M*R.
+        num_data_blocks = transmitted_blocks // repeats
+        if num_data_blocks == 0:
+            continue
+        for block_index in range(num_data_blocks):
+            # Sum LLRs across copies rather than magnitudes -- max-log-MAP is
+            # non-linear, so per-copy LLR extraction then summation is
+            # noticeably better at low SNR than averaging magnitudes first.
+            combined_soft: np.ndarray | None = None
+            for copy_index in range(repeats):
+                copy_position = group_start + (copy_index * num_data_blocks + block_index) * block_length
+                copy_mags = magnitudes[copy_position : copy_position + block_length]
+                copy_soft = soft_bits_from_magnitudes(copy_mags)
+                if combined_soft is None:
+                    combined_soft = copy_soft.copy()
+                else:
+                    combined_soft += copy_soft
+            decoded = _decode_one_block_from_soft(combined_soft, config, codec)
             if decoded is not None:
                 output.extend(decoded)
     return bytes(output)
 
 
+def _decode_one_block_from_soft(soft_bits: np.ndarray, config: ModemConfig, codec: RSBlockCodec) -> bytes | None:
+    """Decode a single block from combined soft LLR bits."""
+    coded_bits_count = 2 * (codec.config.block_size * 8 + fec.CONSTRAINT_LENGTH - 1)
+    if soft_bits.shape[0] < coded_bits_count:
+        return None
+    deinterleaved = deinterleave_soft(soft_bits, config.interleaver, coded_bits_count)
+    payload_bits = fec.decode(deinterleaved, num_output_bits=codec.config.block_size * 8)
+    wire_bytes = _bits_to_bytes_msb(payload_bits)
+    return codec.try_decode(wire_bytes)
+
+
 def _find_preamble_peaks(
     magnitudes: np.ndarray, preamble: np.ndarray, config: ModemConfig
 ) -> list[int]:
-    """Return all positions where the preamble correlator exceeds threshold.
-
-    Non-maximum suppression: peaks within ``preamble_length`` symbols of each
-    other are collapsed to the higher-scoring one.
-    """
+    """Return preamble positions above threshold with non-max suppression."""
     preamble_length = len(preamble)
     if magnitudes.shape[0] < preamble_length:
         return []
