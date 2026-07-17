@@ -50,6 +50,8 @@ class Config:
     repeats: int
     rs_data: int
     rs_parity: int
+    payload_bytes: int = PAYLOAD_BYTES
+    note: str = ""  # optional label shown in the throughput column
 
     def build(self) -> ModemConfig:
         return ModemConfig(
@@ -66,12 +68,10 @@ class Config:
         return f"RS({block_size},{self.rs_data})"
 
     def snr_search_high_db(self) -> float:
-        # Rough upper bound: no config should need better than +10 dB.
         return 10.0
 
     def snr_search_low_db(self) -> float:
-        # Very-low-baud + heavy repetition can approach the Shannon floor.
-        return -25.0
+        return -28.0
 
 
 @dataclass
@@ -83,9 +83,9 @@ class Result:
     shannon_snr_db: float
 
 
-def _random_payload() -> bytes:
+def _random_payload(size_bytes: int) -> bytes:
     alphabet = (string.ascii_letters + string.digits + " ").encode("ascii")
-    return bytes(random.Random(PAYLOAD_SEED).choices(alphabet, k=PAYLOAD_BYTES))
+    return bytes(random.Random(PAYLOAD_SEED).choices(alphabet, k=size_bytes))
 
 
 def shannon_snr_db(info_rate_bit_per_s: float, bandwidth_hz: float = REFERENCE_BANDWIDTH_HZ) -> float:
@@ -144,12 +144,33 @@ def _enumerate_configs() -> list[Config]:
         for repeats in REPEATS:
             for rs_data, rs_parity in RS_CONFIGS:
                 configs.append(Config(baud=baud, repeats=repeats, rs_data=rs_data, rs_parity=rs_parity))
+    # Notable single-config rows below the main grid.
+    configs.extend(
+        [
+            Config(
+                baud=45,
+                repeats=6,
+                rs_data=16,
+                rs_parity=8,
+                payload_bytes=15,
+                note="fixed 15-byte payload, 6x repeat — SNR floor push",
+            ),
+            Config(
+                baud=45,
+                repeats=4,
+                rs_data=16,
+                rs_parity=8,
+                payload_bytes=20,
+                note="20 B = 10 sensor reports via protocol codec (~99 B as ASCII)",
+            ),
+        ]
+    )
     return configs
 
 
 def format_table(results: list[Result]) -> str:
     header = [
-        f"Payload: {PAYLOAD_BYTES} random-ASCII bytes. Reference bandwidth: 3 kHz.",
+        f"Payload: {PAYLOAD_BYTES} random-ASCII bytes unless noted. Reference bandwidth: 3 kHz.",
         "",
         "| Baud | RS | Repeats | Throughput | Info rate | Our cliff | Shannon | Gap |",
         "|---:|---|---:|---|---:|---:|---:|---:|",
@@ -162,9 +183,12 @@ def format_table(results: list[Result]) -> str:
             if r.cliff_snr_db is not None
             else "n/a"
         )
+        throughput = f"{r.config.payload_bytes} chars in {r.duration_seconds:.1f} s"
+        if r.config.note:
+            throughput = f"{throughput}<br/><sub>{r.config.note}</sub>"
         rows.append(
             f"| {r.config.baud} | {r.config.rs_label()} | {r.config.repeats}&times; | "
-            f"{PAYLOAD_BYTES} chars in {r.duration_seconds:.1f} s | "
+            f"{throughput} | "
             f"{r.info_rate_bit_per_s:.1f} bit/s | {cliff_text} | "
             f"{r.shannon_snr_db:+.1f} dB | {gap_text} |"
         )
@@ -195,13 +219,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    payload = _random_payload()
     configs = _enumerate_configs()
-    print(f"Sweeping {len(configs)} configs with {args.trials} trials/point. Payload: {PAYLOAD_BYTES} bytes.\n")
+    print(f"Sweeping {len(configs)} configs with {args.trials} trials/point.\n")
     results: list[Result] = []
     started = time.perf_counter()
     for config in configs:
         row_start = time.perf_counter()
+        payload = _random_payload(config.payload_bytes)
         result = _find_cliff(config, trials=args.trials, payload=payload)
         elapsed = time.perf_counter() - row_start
         cliff = f"{result.cliff_snr_db:+.0f} dB" if result.cliff_snr_db is not None else "no decode"

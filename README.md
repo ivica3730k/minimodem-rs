@@ -159,7 +159,48 @@ between the markers.
 
 <!-- BENCHMARK RESULTS START -->
 
-(run `poetry run weaklink-benchmark` to populate this table)
+Payload: 100 random-ASCII bytes unless noted. Reference bandwidth: 3 kHz.
+
+| Baud | RS | Repeats | Throughput | Info rate | Our cliff | Shannon | Gap |
+|---:|---|---:|---|---:|---:|---:|---:|
+| 45 | RS(28,16) | 1&times; | 100 chars in 38.4 s | 20.8 bit/s | **-12 dB** | -23.2 dB | 11.2 dB |
+| 45 | RS(44,32) | 1&times; | 100 chars in 35.6 s | 22.5 bit/s | **-12 dB** | -22.8 dB | 10.8 dB |
+| 45 | RS(164,128) | 1&times; | 100 chars in 32.7 s | 24.4 bit/s | **-12 dB** | -22.5 dB | 10.5 dB |
+| 45 | RS(28,16) | 2&times; | 100 chars in 75.4 s | 10.6 bit/s | **-14 dB** | -26.1 dB | 12.1 dB |
+| 45 | RS(44,32) | 2&times; | 100 chars in 69.7 s | 11.5 bit/s | **-14 dB** | -25.8 dB | 11.8 dB |
+| 45 | RS(164,128) | 2&times; | 100 chars in 64.0 s | 12.5 bit/s | **-14 dB** | -25.4 dB | 11.4 dB |
+| 45 | RS(28,16) | 4&times; | 100 chars in 149.4 s | 5.4 bit/s | **-16 dB** | -29.1 dB | 13.1 dB |
+| 45 | RS(44,32) | 4&times; | 100 chars in 138.0 s | 5.8 bit/s | **-16 dB** | -28.7 dB | 12.7 dB |
+| 45 | RS(164,128) | 4&times; | 100 chars in 126.6 s | 6.3 bit/s | **-16 dB** | -28.4 dB | 12.4 dB |
+| 100 | RS(28,16) | 1&times; | 100 chars in 17.3 s | 46.3 bit/s | **-8 dB** | -19.7 dB | 11.7 dB |
+| 100 | RS(44,32) | 1&times; | 100 chars in 16.0 s | 50.0 bit/s | **-8 dB** | -19.3 dB | 11.3 dB |
+| 100 | RS(164,128) | 1&times; | 100 chars in 14.7 s | 54.3 bit/s | **-9 dB** | -19.0 dB | 10.0 dB |
+| 100 | RS(28,16) | 2&times; | 100 chars in 33.9 s | 23.6 bit/s | **-10 dB** | -22.6 dB | 12.6 dB |
+| 100 | RS(44,32) | 2&times; | 100 chars in 31.4 s | 25.5 bit/s | **-9 dB** | -22.3 dB | 13.3 dB |
+| 100 | RS(164,128) | 2&times; | 100 chars in 28.8 s | 27.8 bit/s | **-11 dB** | -21.9 dB | 10.9 dB |
+| 100 | RS(28,16) | 4&times; | 100 chars in 67.2 s | 11.9 bit/s | **-12 dB** | -25.6 dB | 13.6 dB |
+| 100 | RS(44,32) | 4&times; | 100 chars in 62.1 s | 12.9 bit/s | **-12 dB** | -25.3 dB | 13.3 dB |
+| 100 | RS(164,128) | 4&times; | 100 chars in 57.0 s | 14.0 bit/s | **-13 dB** | -24.9 dB | 11.9 dB |
+| 300 | RS(28,16) | 1&times; | 100 chars in 5.8 s | 138.9 bit/s | **-3 dB** | -14.9 dB | 11.9 dB |
+| 300 | RS(44,32) | 1&times; | 100 chars in 5.3 s | 150.0 bit/s | **-3 dB** | -14.5 dB | 11.5 dB |
+| 300 | RS(164,128) | 1&times; | 100 chars in 4.9 s | 163.0 bit/s | **-4 dB** | -14.2 dB | 10.2 dB |
+| 300 | RS(28,16) | 2&times; | 100 chars in 11.3 s | 70.8 bit/s | **-6 dB** | -17.8 dB | 11.8 dB |
+| 300 | RS(44,32) | 2&times; | 100 chars in 10.5 s | 76.5 bit/s | **-5 dB** | -17.5 dB | 12.5 dB |
+| 300 | RS(164,128) | 2&times; | 100 chars in 9.6 s | 83.3 bit/s | **-6 dB** | -17.1 dB | 11.1 dB |
+| 300 | RS(28,16) | 4&times; | 100 chars in 22.4 s | 35.7 bit/s | **-8 dB** | -20.8 dB | 12.8 dB |
+| 300 | RS(44,32) | 4&times; | 100 chars in 20.7 s | 38.7 bit/s | **-7 dB** | -20.5 dB | 13.5 dB |
+| 300 | RS(164,128) | 4&times; | 100 chars in 19.0 s | 42.1 bit/s | **-8 dB** | -20.1 dB | 12.1 dB |
+| 1200 | RS(28,16) | 1&times; | 100 chars in 1.4 s | 555.6 bit/s | **+3 dB** | -8.6 dB | 11.6 dB |
+| 1200 | RS(44,32) | 1&times; | 100 chars in 1.3 s | 600.0 bit/s | **+4 dB** | -8.3 dB | 12.3 dB |
+| 1200 | RS(164,128) | 1&times; | 100 chars in 1.2 s | 652.2 bit/s | **+2 dB** | -7.9 dB | 9.9 dB |
+| 1200 | RS(28,16) | 2&times; | 100 chars in 2.8 s | 283.0 bit/s | **+1 dB** | -11.7 dB | 12.7 dB |
+| 1200 | RS(44,32) | 2&times; | 100 chars in 2.6 s | 306.1 bit/s | **+1 dB** | -11.3 dB | 12.3 dB |
+| 1200 | RS(164,128) | 2&times; | 100 chars in 2.4 s | 333.3 bit/s | **+0 dB** | -11.0 dB | 11.0 dB |
+| 1200 | RS(28,16) | 4&times; | 100 chars in 5.6 s | 142.9 bit/s | **-1 dB** | -14.7 dB | 13.7 dB |
+| 1200 | RS(44,32) | 4&times; | 100 chars in 5.2 s | 154.6 bit/s | **-1 dB** | -14.4 dB | 13.4 dB |
+| 1200 | RS(164,128) | 4&times; | 100 chars in 4.7 s | 168.5 bit/s | **-2 dB** | -14.0 dB | 12.0 dB |
+| 45 | RS(28,16) | 6&times; | 15 chars in 35.6 s<br/><sub>fixed 15-byte payload, 6x repeat — SNR floor push</sub> | 3.4 bit/s | **-16 dB** | -31.1 dB | 15.1 dB |
+| 45 | RS(28,16) | 4&times; | 20 chars in 46.9 s<br/><sub>20 B = 10 sensor reports via protocol codec (~99 B as ASCII)</sub> | 3.4 bit/s | **-16 dB** | -31.0 dB | 15.0 dB |
 
 <!-- BENCHMARK RESULTS END -->
 
