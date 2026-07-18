@@ -60,8 +60,14 @@ class Config:
         )
 
     def rs_label(self) -> str:
-        block_size = self.rs_data + self.rs_parity + 4
-        return f"RS({block_size},{self.rs_data})"
+        """Block layout label: ``<wire>B block / <data>B data / <parity>B parity``.
+
+        Wire = data + 4 (CRC-32) + parity. Textbook RS notation would be
+        ``RS(wire, data+4)``; we spell it out so the user knows the numbers
+        match ``--modem-rs-data-bytes`` and ``--modem-rs-parity-bytes``.
+        """
+        wire = self.rs_data + self.rs_parity + 4
+        return f"{wire}B block / {self.rs_data}B data / {self.rs_parity}B parity"
 
 
 @dataclass
@@ -167,7 +173,7 @@ def format_table(results: list[Result]) -> str:
         f"Streaming modem. Payload: {PAYLOAD_BYTES} random-ASCII bytes. Sync every "
         f"{SYNC_EVERY_FIXED} data blocks. Reference bandwidth: 3 kHz.",
         "",
-        "| Baud | RS | Block repeats | Throughput | Info rate | Our cliff | Shannon | Gap |",
+        "| Baud | Block layout (wire / data / parity, +4 B CRC) | Block repeats | Throughput | Info rate | Our cliff | Shannon | Gap |",
         "|---:|---|---:|---|---:|---:|---:|---:|",
     ]
     rows = []
