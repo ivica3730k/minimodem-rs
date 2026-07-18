@@ -133,37 +133,43 @@ def _encode_one_block(payload: bytes, config: ModemConfig) -> np.ndarray:
 
 
 def encode(input_bytes: bytes, config: ModemConfig) -> np.ndarray:
-    """Encode bytes to float32 audio. Zero-pads to RS-block boundary.
+    """Encode bytes to float32 audio.
 
-    Frame per sync period: ``[preamble][b1..bM b1..bM ...]`` R copies
-    round-robin (burst-tolerant); trailing preamble marks the end.
+    Each block carries ``[length_byte, payload..., zero_pad]`` inside the
+    RS data area, so the receiver knows exactly how many bytes are real
+    payload and how many are padding. Length byte counts real payload
+    within the block (0 .. data_bytes-1).
     """
     codec = config.rs_codec()
     data_bytes = codec.config.data_bytes
-    remainder = len(input_bytes) % data_bytes
-    if remainder:
-        input_bytes = input_bytes + b"\x00" * (data_bytes - remainder)
+    if data_bytes < 2:
+        raise ValueError("rs_data_bytes must be >= 2 (1 header byte + 1 payload byte)")
+    if data_bytes > 256:
+        raise ValueError("rs_data_bytes must be <= 256 for a single-byte length header")
+
+    payload_per_block = data_bytes - 1
+    block_payloads: list[bytes] = []
+    for start in range(0, max(len(input_bytes), 1), payload_per_block):
+        chunk = input_bytes[start : start + payload_per_block]
+        header = bytes([len(chunk)])
+        block_payloads.append(header + chunk + b"\x00" * (payload_per_block - len(chunk)))
+    if not block_payloads:  # zero-length input still gets one empty block
+        block_payloads = [bytes([0]) + b"\x00" * payload_per_block]
 
     pre = PREAMBLE_SYMBOLS
-    total_blocks = len(input_bytes) // data_bytes
     group_size = config.sync_every_blocks
     repeats = config.block_repeats
-
     symbol_pieces: list[np.ndarray] = []
-    for group_start in range(0, total_blocks, group_size):
-        group_end = min(group_start + group_size, total_blocks)
+    for group_start in range(0, len(block_payloads), group_size):
+        group_end = min(group_start + group_size, len(block_payloads))
         group_symbols = [
-            _encode_one_block(
-                input_bytes[block_index * data_bytes : (block_index + 1) * data_bytes],
-                config,
-            )
-            for block_index in range(group_start, group_end)
+            _encode_one_block(block_payloads[i], config)
+            for i in range(group_start, group_end)
         ]
         symbol_pieces.append(pre)
         for _copy in range(repeats):
             symbol_pieces.extend(group_symbols)
     symbol_pieces.append(pre)  # trailing marker
-
     all_symbols = np.concatenate(symbol_pieces) if symbol_pieces else np.zeros(0, dtype=np.int8)
     return modulate(all_symbols, config.waveform)
 
@@ -365,7 +371,12 @@ def decode(samples: np.ndarray, config: ModemConfig, *, streaming: bool = False)
                     combined_soft += copy_soft
             decoded, errors_corrected = _decode_one_block_from_soft(combined_soft, config, codec)
             if decoded is not None:
-                output.extend(decoded)
+                # First byte is the block-local length header; next
+                # ``length`` bytes are real payload, rest is zero padding.
+                length = decoded[0] if decoded else 0
+                if length > len(decoded) - 1:
+                    length = len(decoded) - 1  # tolerate corrupt header
+                output.extend(decoded[1 : 1 + length])
                 group_decoded += 1
                 total_blocks_decoded += 1
                 if errors_corrected > 0:
