@@ -393,8 +393,11 @@ def _live_stream_decode(config: ModemConfig, *, audio_input: str | None = None) 
                 if poll_counter % snapshot_every_polls == 0:
                     _log_audio_snapshot()
     except KeyboardInterrupt:
-        _log.debug("live rx: keyboard interrupt, finalising decode")
-        _try_emit_from_buffer()
+        # No final decode. Every byte that was ever going to be decodable
+        # was already emitted during the 10 Hz poll loop; running one last
+        # decode on the full retained buffer just adds a noticeable Ctrl-C
+        # hang, especially at slow bauds with 150+ s of audio retained.
+        _log.debug("live rx: keyboard interrupt, exiting")
     return 0
 
 

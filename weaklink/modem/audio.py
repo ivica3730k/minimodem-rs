@@ -205,13 +205,20 @@ class LiveInputStream:
         if self._sd_stream is not None:
             self._sd_stream.close()
         if self._proc is not None:
+            # Short timeouts: parec closes cleanly in ~50 ms in practice.
+            # SIGKILL fallback the moment SIGTERM doesn't take, so Ctrl-C
+            # returns to the shell without a perceptible hang.
             try:
                 self._proc.terminate()
-                self._proc.wait(timeout=1.0)
+                self._proc.wait(timeout=0.2)
             except Exception:
                 self._proc.kill()
+                try:
+                    self._proc.wait(timeout=0.2)
+                except Exception:
+                    pass
         if self._thread is not None:
-            self._thread.join(timeout=1.0)
+            self._thread.join(timeout=0.2)
 
     def _open_sounddevice(self) -> None:
         sd = _import_sounddevice()
