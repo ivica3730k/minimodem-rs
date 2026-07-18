@@ -111,9 +111,15 @@ def _resolve_device(sd: Any, name_hint: str | None, *, kind: str) -> int | None:
     """Match ``name_hint`` against ``sounddevice.query_devices()`` names.
 
     Returns the device index for the best match, or ``None`` to let PortAudio
-    pick its own default. Substring match is intentional — Pulse sink names
+    pick its own default. Substring match is intentional -- Pulse sink names
     like ``alsa_output.usb-Focusrite_Scarlett_Solo_...`` don't line up with
     PortAudio's shorter human-readable strings, so we accept either direction.
+
+    If the hint is set but no sounddevice name matches (typical case: the hint
+    is a Pulse sink or source name that PortAudio doesn't enumerate
+    individually), fall back to the ``pulse`` PortAudio device. PulseAudio
+    itself will then honour the ``PULSE_SINK`` / ``PULSE_SOURCE`` env var for
+    that stream, routing it to the actual named sink or source.
     """
     if not name_hint:
         return None
@@ -123,10 +129,18 @@ def _resolve_device(sd: Any, name_hint: str | None, *, kind: str) -> int | None:
     except Exception:
         return None
     hint_lower = name_hint.lower()
+    # First: direct substring match against a sounddevice device name.
     for index, info in enumerate(devices):
         if info.get(channel_attr, 0) <= 0:
             continue
         name = str(info.get("name", "")).lower()
         if hint_lower in name or name in hint_lower:
+            return index
+    # Second: use the generic "pulse" PortAudio device so libpulse honours the
+    # ``PULSE_SINK`` / ``PULSE_SOURCE`` env var.
+    for index, info in enumerate(devices):
+        if info.get(channel_attr, 0) <= 0:
+            continue
+        if str(info.get("name", "")).lower() == "pulse":
             return index
     return None
