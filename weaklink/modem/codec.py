@@ -12,6 +12,7 @@ No length header; missing blocks silently dropped.
 
 from __future__ import annotations
 
+import functools
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -97,6 +98,29 @@ class ModemConfig:
         return _block_symbol_length(self)
 
 
+#: Seed for per-copy symbol permutations; shared between TX and RX so both
+#: sides know how to un-scramble each retransmit before LLR combining.
+_COPY_PERMUTATION_SEED: int = 0xC0DE
+
+
+@functools.lru_cache(maxsize=None)
+def _copy_permutation(copy_index: int, size: int) -> np.ndarray:
+    """Deterministic permutation of ``size`` symbol positions for the
+    ``copy_index``-th retransmit. Copy 0 is identity; other copies use a
+    seeded PRNG so a burst at time slot X hits different coded bits in
+    each copy, giving bit-level diversity even for single-block payloads."""
+    if copy_index == 0:
+        return np.arange(size, dtype=np.int64)
+    rng = np.random.default_rng(_COPY_PERMUTATION_SEED + copy_index)
+    return rng.permutation(size)
+
+
+@functools.lru_cache(maxsize=None)
+def _copy_permutation_inverse(copy_index: int, size: int) -> np.ndarray:
+    """Inverse of :func:`_copy_permutation` -- cached so RX doesn't re-argsort per block."""
+    return np.argsort(_copy_permutation(copy_index, size))
+
+
 def _pad_zeros(
     magnitudes: np.ndarray,
     samples: np.ndarray,
@@ -166,9 +190,16 @@ def encode(input_bytes: bytes, config: ModemConfig) -> np.ndarray:
             _encode_one_block(block_payloads[i], config)
             for i in range(group_start, group_end)
         ]
+        block_len = group_symbols[0].shape[0]
         symbol_pieces.append(pre)
-        for _copy in range(repeats):
-            symbol_pieces.extend(group_symbols)
+        # Each copy uses a distinct symbol permutation; RX un-permutes
+        # before LLR combining. Bursts that hit the same time slot in
+        # multiple copies now corrupt different coded bits in each,
+        # so per-bit combining still recovers.
+        for copy_index in range(repeats):
+            perm = _copy_permutation(copy_index, block_len)
+            for block_syms in group_symbols:
+                symbol_pieces.append(block_syms[perm])
     symbol_pieces.append(pre)  # trailing marker
     all_symbols = np.concatenate(symbol_pieces) if symbol_pieces else np.zeros(0, dtype=np.int8)
     return modulate(all_symbols, config.waveform)
@@ -364,6 +395,11 @@ def decode(samples: np.ndarray, config: ModemConfig, *, streaming: bool = False)
             for copy_index in range(repeats):
                 copy_position = base_offset_in_group + (copy_index * num_data_blocks + block_index) * block_length
                 copy_mags = group_magnitudes[copy_position : copy_position + block_length]
+                # Un-permute this copy's symbols back to the original ordering
+                # before soft-bit extraction so all copies contribute LLRs at
+                # the same coded-bit position.
+                if copy_index > 0:
+                    copy_mags = copy_mags[_copy_permutation_inverse(copy_index, block_length)]
                 copy_soft = soft_bits_from_magnitudes(copy_mags)
                 if combined_soft is None:
                     combined_soft = copy_soft.copy()
