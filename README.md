@@ -5,6 +5,8 @@ takes audio and turns it back into bytes. Simple byte pipe — no packet
 awareness, no length field, no message vocabulary. You add whatever
 protocol on top (or don't).
 
+![alt text](image.png)
+
 Distribution: `weaklink-9a3ice`.
 
 ## Install
