@@ -186,16 +186,13 @@ def _make_config(args: argparse.Namespace) -> ModemConfig:
     )
 
 
-#: Minimum live-tx duration in seconds. Short payloads at high baud finish
-#: in <500 ms, which leaves the RX with a mostly-silent buffer for the
-#: first decode attempt -- the coarse-offset FFT then picks a spurious
-#: offset off of stray pilot noise. Padding with real 4-FSK pilot symbols
-#: gives the FFT genuine tone energy at the right positions and always
-#: produces a buffer with enough signal to lock cleanly.
-_LIVE_TX_MIN_SECONDS: float = 3.0
-#: Minimum pilot duration on each side of the modem signal, even for long
-#: payloads. Wakes the sink and keeps it in RUNNING past the last symbol.
-_LIVE_TX_PILOT_MIN_SECONDS: float = 0.4
+#: Pilot duration on each side of the modem signal on live-tx paths. Only
+#: two hard requirements: (a) wake the sink from IDLE, which takes ~50 ms;
+#: (b) give the coarse-offset FFT some real 4-FSK tone energy so it locks
+#: to offset 0 even before the payload preamble arrives. 200 ms comfortably
+#: covers both without inflating short-payload transmissions. Independent
+#: of baud -- pilot is real modem symbols so density is the same.
+_LIVE_TX_PILOT_SECONDS: float = 0.2
 
 
 def _pilot_signal(config: ModemConfig, duration_seconds: float) -> "np.ndarray":  # noqa: F821
@@ -205,7 +202,7 @@ def _pilot_signal(config: ModemConfig, duration_seconds: float) -> "np.ndarray":
     every expected position."""
     import numpy as np
 
-    from weaklink.modem.waveform import BITS_PER_SYMBOL, NUM_TONES, modulate
+    from weaklink.modem.waveform import NUM_TONES, modulate
 
     symbols_needed = max(1, int(round(duration_seconds * config.waveform.baud)))
     rng = np.random.default_rng(0xC0DE)
@@ -226,17 +223,9 @@ def _run_tx(args: argparse.Namespace) -> int:
     else:
         from weaklink.modem.audio import play
 
-        sample_rate = config.waveform.sample_rate
-        signal_seconds = len(samples) / sample_rate
-        # Pilot duration: enough to hit ``_LIVE_TX_MIN_SECONDS`` total, split
-        # evenly around the signal, but never below the pilot-min floor.
-        pilot_each_side = max(
-            _LIVE_TX_PILOT_MIN_SECONDS,
-            (_LIVE_TX_MIN_SECONDS - signal_seconds) / 2.0,
-        )
-        pilot = _pilot_signal(config, pilot_each_side).astype(np.float32)
+        pilot = _pilot_signal(config, _LIVE_TX_PILOT_SECONDS).astype(np.float32)
         padded = np.concatenate([pilot, samples, pilot])
-        play(padded, sample_rate, device=args.modem_audio_output)
+        play(padded, config.waveform.sample_rate, device=args.modem_audio_output)
     return 0
 
 
@@ -316,12 +305,15 @@ def _live_stream_decode(config: ModemConfig, *, audio_input: str | None = None) 
         if not chunks:
             return
         total_samples_seen = _total_buffered()
-        # Enough audio to fit *one* preamble plus a data-block worth of head
-        # room -- we start attempting decodes as soon as the leading preamble
-        # could plausibly be present. Retries every poll as buffer grows, so
-        # over-eager attempts are cheap.
-        preamble_seconds = 32 / config.waveform.baud
-        min_wait_samples = int(max(2.0, preamble_seconds + 1.0) * sample_rate)
+        # Enough audio to fit a leading preamble + one data block + trailing
+        # preamble -- the smallest window that could plausibly contain a
+        # decodable group. At 1200 baud that's ~240 ms; at 9 baud ~32 s.
+        # Retries every poll as buffer grows, so over-eager attempts are
+        # cheap on the fast bauds where they're most likely to happen.
+        preamble_length_symbols = 32
+        block_symbols = _block_symbol_length(config)
+        min_group_symbols = 2 * preamble_length_symbols + block_symbols
+        min_wait_samples = int(min_group_symbols / config.waveform.baud * sample_rate)
         if total_samples_seen - cursor < min_wait_samples:
             return
         # Concatenate current chunks. Slice to start at the cursor.
