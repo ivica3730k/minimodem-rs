@@ -405,32 +405,37 @@ def _decode_one_block_from_soft(
     return codec.try_decode_with_stats(wire_bytes)
 
 
-_PREAMBLE_SCORE_RATIO = 0.7
-"""Preamble correlator threshold: candidates must score ``>= ratio * peak``."""
-
-
 def _find_preamble_peaks(
     magnitudes: np.ndarray, preamble: np.ndarray, config: ModemConfig
 ) -> list[int]:
-    """Return preamble positions above a ratio-of-peak threshold, with a
-    signal-presence gate that rejects noise-only buffers outright.
+    """Return preamble positions using an **amplitude-normalised** correlator.
 
-    Two-stage design:
+    Naive fix -- take ``sum(wanted - avg_of_others)`` per window -- ties the
+    score to signal amplitude. Under 10 dB fading a strong preamble at the
+    peak of a fade cycle scores ~10× higher than a weak preamble at the
+    trough, and any ratio-of-peak threshold masks the weak ones. We instead
+    normalise each score by that window's total tone energy:
 
-    1. **Signal-presence gate.** On pure noise, ``peak / robust-sigma`` sits at
-       just a few σ (extreme-value statistics for a few thousand samples).
-       Real preambles push the peak-vs-noise ratio much higher. If the peak
-       isn't at least ~6 robust-σ above the noise centre, we treat the buffer
-       as "no signal here yet" and return [].
+        normalised = sum_i (wanted[i] - mean_others[i]) / sum_i (total energy)
 
-       The noise centre + robust-σ are estimated from the *lower half* of
-       scores. This avoids contamination from real-preamble outliers and their
-       PN autocorrelation sidelobes -- both of which sit in the upper half.
+    Real preambles concentrate all per-symbol energy on the matched tone, so
+    the normalised score approaches its theoretical maximum regardless of
+    amplitude. Random data and noise concentrate energy across tones roughly
+    uniformly and score close to zero. Fading multiplies numerator and
+    denominator by the same factor -- the ratio is invariant.
 
-    2. **Candidate selection.** Keep offsets scoring ``>= 0.7 * peak``. On a
-       clean signal, real preambles score ~100% of peak and sidelobes score
-       ~33% -- the 0.7 line cleanly separates them without dropping real
-       peaks that faded modestly.
+    Detection then has two knobs:
+
+    1. **Signal-presence gate:** peak normalised score must sit at least
+       ``6σ`` above the median-based noise floor. Below that we treat the
+       buffer as noise-only and return [].
+    2. **Candidate selection:** everything ``>= 5σ`` above the noise floor
+       is a peak candidate. Absolute-σ, not ratio-of-peak, so a strong
+       preamble no longer sets the bar unreachably high for faded ones.
+       Autocorrelation sidelobes and partial-match false alarms sit around
+       3–4 σ; real preambles at any fade level land at 8–10 σ, so 5σ leaves
+       a clean gap. Anything false that still slips through gets discarded
+       downstream by CRC + RS.
     """
     preamble_length = len(preamble)
     if magnitudes.shape[0] < preamble_length:
@@ -439,43 +444,49 @@ def _find_preamble_peaks(
     positions = np.arange(preamble_length)
     max_offset = magnitudes.shape[0] - preamble_length
     scores = np.empty(max_offset + 1, dtype=np.float64)
+    # Rolling sum of per-symbol total energy across the preamble-length
+    # window; used to amplitude-normalise the raw correlation score.
+    total_per_symbol = magnitudes.sum(axis=1)
+    windowed_total = np.convolve(total_per_symbol, np.ones(preamble_length), mode="valid")
+    assert windowed_total.size == max_offset + 1
     for offset in range(max_offset + 1):
         window = magnitudes[offset : offset + preamble_length]
         wanted = window[positions, tone_indices]
         others = (window.sum(axis=1) - wanted) / (NUM_TONES - 1)
-        scores[offset] = float(np.sum(wanted - others))
+        raw = float(np.sum(wanted - others))
+        denom = float(windowed_total[offset])
+        # denom = 0 only on a genuinely silent window; anything else has
+        # non-trivial magnitudes even at very low SNR.
+        scores[offset] = raw / denom if denom > 1e-12 else 0.0
 
     if scores.size == 0:
         return []
-
     peak_score = float(scores.max())
-    if peak_score <= 0.0:
-        return []
 
-    # Estimate noise floor from the lower half of scores -- signal peaks and
-    # their sidelobes live in the upper half, so this gives a clean noise
-    # estimate even for signal-rich buffers.
+    # Robust noise floor from the lower half -- real preambles + their PN
+    # autocorrelation sidelobes live in the upper half of scores; anything
+    # <= the overall median is approximately noise-only.
     overall_median = float(np.median(scores))
     lower_half = scores[scores <= overall_median]
     if lower_half.size < 4:
         return []
     noise_centre = float(np.median(lower_half))
     noise_mad = float(np.median(np.abs(lower_half - noise_centre)))
-    # MAD -> gaussian sigma. The 2.0x factor is because we're computing MAD on
-    # a half-distribution (values <= median), which underestimates true σ.
+    # MAD -> gaussian sigma. 2.0x factor because half-distribution MAD
+    # underestimates the full σ.
     noise_sigma = max(2.0 * 1.4826 * noise_mad, 1e-9)
 
     if peak_score < noise_centre + 6.0 * noise_sigma:
         return []
 
-    threshold = peak_score * _PREAMBLE_SCORE_RATIO
+    candidate_threshold = noise_centre + 5.0 * noise_sigma
 
     peaks: list[int] = []
     guard = preamble_length
     order = np.argsort(-scores)
     taken = np.zeros(scores.size, dtype=bool)
     for candidate in order:
-        if scores[candidate] < threshold:
+        if scores[candidate] < candidate_threshold:
             break
         lo = max(0, int(candidate) - guard)
         hi = min(scores.size, int(candidate) + guard + 1)
