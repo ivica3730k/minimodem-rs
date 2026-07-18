@@ -216,9 +216,9 @@ def decode(samples: np.ndarray, config: ModemConfig, *, streaming: bool = False)
     group that follows is demodulated using that per-group offset.
 
     Diagnostics go through the standard ``logging`` module (logger name
-    ``weaklink.decode``). Set the CLI ``--modem-debug`` flag to raise the log
-    level to DEBUG; otherwise INFO-level events (per-decode summary + warnings)
-    are what you get.
+    ``weaklink.decode``). At default INFO level the codec is silent aside
+    from ``WARN`` on successful RS corrections and ``ERROR`` on RS failures.
+    Set the CLI ``--modem-debug`` flag to see the per-decode chatter.
     """
     if len(samples) == 0:
         _log.debug("empty sample buffer; nothing to decode")
@@ -231,14 +231,14 @@ def decode(samples: np.ndarray, config: ModemConfig, *, streaming: bool = False)
     rms = float(np.sqrt(np.mean(samples_float ** 2))) if len(samples_float) else 0.0
     peak_db = 20.0 * np.log10(peak) if peak > 0 else -np.inf
     rms_db = 20.0 * np.log10(rms) if rms > 0 else -np.inf
-    _log.info(
+    _log.debug(
         "input: %d samples, %.2f s, peak %.4f (%+.1f dBFS), rms %.4f (%+.1f dBFS)",
         len(samples_float), duration_s, peak, peak_db, rms, rms_db,
     )
     if peak_db < -40:
-        _log.warning("peak level below -40 dBFS. Mic input probably too quiet or muted.")
+        _log.debug("peak level below -40 dBFS")
     if rms_db < -60:
-        _log.warning("rms level below -60 dBFS. Likely no signal at all.")
+        _log.debug("rms level below -60 dBFS")
 
     # 1. Global coarse offset (FFT-based, handles big SSB LO drift).
     coarse_offset = 0.0
@@ -248,7 +248,7 @@ def decode(samples: np.ndarray, config: ModemConfig, *, streaming: bool = False)
             config.waveform,
             search_range_hz=config.coarse_frequency_search_hz,
         )
-    _log.info("coarse frequency offset: %+.1f Hz", coarse_offset)
+    _log.debug("coarse frequency offset: %+.1f Hz", coarse_offset)
 
     # 2. Demodulate once with the coarse offset just to find preambles.
     coarse_magnitudes = demodulate_soft(samples, config.waveform, frequency_offset_hz=coarse_offset)
@@ -258,12 +258,9 @@ def decode(samples: np.ndarray, config: ModemConfig, *, streaming: bool = False)
 
     preamble = preamble_symbols()
     peaks = _find_preamble_peaks(coarse_magnitudes, preamble, config)
-    _log.info("preamble peaks found: %d at symbol offsets %s", len(peaks), peaks[:8])
+    _log.debug("preamble peaks found: %d at symbol offsets %s", len(peaks), peaks[:8])
     if not peaks:
-        _log.warning(
-            "no preambles above threshold — either no modem signal in the buffer, "
-            "SNR too low, or wrong baud/tone_spacing on RX. Check with a WAV loopback first."
-        )
+        _log.debug("no preambles above threshold")
         return (b"", 0) if streaming else b""
     if streaming and len(peaks) < 2:
         # Only one preamble seen -- we can't be sure the trailing preamble has
@@ -340,6 +337,7 @@ def decode(samples: np.ndarray, config: ModemConfig, *, streaming: bool = False)
             base_offset_in_group = group_start
 
         group_decoded = 0
+        group_failed = 0
         group_rs_errors = 0
         for block_index in range(num_data_blocks):
             total_blocks_attempted += 1
@@ -363,14 +361,21 @@ def decode(samples: np.ndarray, config: ModemConfig, *, streaming: bool = False)
                 if errors_corrected > 0:
                     group_rs_errors += errors_corrected
                     total_rs_errors_corrected += errors_corrected
+            else:
+                group_failed += 1
         if group_rs_errors > 0:
             _log.warning(
-                "RS intervened in group %d: corrected %d byte-symbols across %d decoded block(s)",
-                peak_index, group_rs_errors, group_decoded,
+                "RS corrected %d byte-symbol(s) across %d block(s) in group %d",
+                group_rs_errors, group_decoded, peak_index,
+            )
+        if group_failed > 0:
+            _log.error(
+                "RS failed on %d block(s) in group %d -- data lost",
+                group_failed, peak_index,
             )
         _log.debug("group %d: %d/%d blocks decoded", peak_index, group_decoded, num_data_blocks)
 
-    _log.info(
+    _log.debug(
         "totals: %d/%d blocks decoded, %d bytes emitted, %d RS corrections",
         total_blocks_decoded, total_blocks_attempted, len(output), total_rs_errors_corrected,
     )
@@ -380,40 +385,6 @@ def decode(samples: np.ndarray, config: ModemConfig, *, streaming: bool = False)
         safe_cursor_samples = peaks[-1] * samples_per_symbol
         return bytes(output), safe_cursor_samples
     return bytes(output)
-
-
-_NOISE_ONLY_BASELINE_DB = 5.12
-"""Bias correction for :func:`estimate_snr_db`.
-
-For 4 i.i.d. exponentially-distributed tone-energy samples (which is the
-distribution you get from complex Gaussian noise through the demodulator),
-``E[max] / E[mean-of-other-3] = (25/12) / (23/36) ≈ 3.26`` -- i.e. even on
-pure noise the "winner / losers" ratio averages to about +5.1 dB. We subtract
-that baseline so a signal-free buffer reads near 0 dB.
-"""
-
-
-def estimate_snr_db(magnitudes: np.ndarray) -> float:
-    """Rough per-symbol SNR estimate from demodulated tone magnitudes.
-
-    Compares winning-tone power to the mean of the other three tone powers
-    (both as squared magnitudes), then subtracts the noise-only ordering bias
-    so a signal-free buffer reads close to 0 dB. Signal present makes it climb
-    into positive dB. Not calibrated to SNR-in-3-kHz, just a monotonic health
-    indicator.
-    """
-    if magnitudes.shape[0] == 0 or magnitudes.shape[1] < 2:
-        return 0.0
-    # Average the powers first, then take the log-ratio. Less biased than
-    # averaging per-symbol log-ratios.
-    winner_power = float(np.mean(magnitudes.max(axis=1)))
-    losers_avg_power = float(
-        np.mean((magnitudes.sum(axis=1) - magnitudes.max(axis=1)) / (magnitudes.shape[1] - 1))
-    )
-    if winner_power <= 0.0 or losers_avg_power <= 0.0:
-        return 0.0
-    raw_db = 10.0 * np.log10(winner_power / losers_avg_power)
-    return float(raw_db - _NOISE_ONLY_BASELINE_DB)
 
 
 def _decode_one_block_from_soft(
