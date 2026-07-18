@@ -149,11 +149,20 @@ def estimate_coarse_frequency_offset(
 ) -> float:
     """FFT-based coarse offset estimate.
 
-    We don't need to know the preamble content to find the tones — they show
-    up as peaks in the magnitude spectrum wherever they landed. Sweep candidate
-    offsets and pick the one that puts the most energy on the 4 expected tone
-    positions. Good to ~ (sample_rate / len(samples)) resolution — for a 2s
-    preamble at 48 kHz that's ~0.5 Hz, but we cap the loop step for speed.
+    Sweeps candidate offsets and picks the one where FFT magnitude is
+    strongest at all 4 expected tone positions *simultaneously*. Uses the
+    geometric-mean scoring (sum of logs) so a single spectrum peak can't
+    win against a balanced 4-tone fit -- important because short-payload
+    encoded signals routinely have one tone dominating the others by 10-40x
+    (e.g. a zero-padded RS block after rate-1/2 conv encoding maps mostly
+    to symbol 0). Under sum-of-magnitudes scoring the estimator would then
+    pick whichever offset landed that dominant peak on any candidate slot;
+    geometric-mean requires actual energy at every one of the four.
+
+    Each candidate tone position is smoothed over a ±3-bin window to
+    tolerate the frequency smearing that continuous-phase FSK produces
+    around each nominal tone. Resolution: ~sample_rate / len(samples),
+    capped at 2 Hz sweep step for speed.
     """
     if len(samples) == 0:
         return 0.0
@@ -161,18 +170,26 @@ def estimate_coarse_frequency_offset(
     spectrum = np.abs(np.fft.rfft(np.asarray(samples, dtype=np.float64), n=fft_length))
     bin_hz = config.sample_rate / fft_length
     step_hz = max(bin_hz, 2.0)
+    window_bins = max(1, int(round(10.0 / bin_hz)))  # ±10 Hz around each tone
+
+    def _tone_energy(bin_index: int) -> float:
+        lo = max(0, bin_index - window_bins)
+        hi = min(len(spectrum), bin_index + window_bins + 1)
+        if hi <= lo:
+            return 0.0
+        return float(spectrum[lo:hi].sum())
 
     offsets = np.arange(-search_range_hz, search_range_hz + step_hz, step_hz)
     best_offset = 0.0
     best_score = -np.inf
     for offset in offsets:
-        total = 0.0
+        log_score = 0.0
         for tone in config.tones_hz:
             bin_index = int(round((tone + offset) / bin_hz))
-            if 0 <= bin_index < len(spectrum):
-                total += spectrum[bin_index]
-        if total > best_score:
-            best_score = total
+            e = _tone_energy(bin_index)
+            log_score += np.log(e + 1e-12)  # avoid log(0)
+        if log_score > best_score:
+            best_score = log_score
             best_offset = float(offset)
     return best_offset
 
