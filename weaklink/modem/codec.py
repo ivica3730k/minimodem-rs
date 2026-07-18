@@ -1,24 +1,13 @@
 """Streaming modem codec.
 
-Wire format
-===========
+Wire format::
 
-    [PREAMBLE] [data block] [data block] ... [data block]   \
-                                     ^ sync_every_blocks blocks   } repeat
-    [PREAMBLE] [data block] [data block] ... [data block]   /
-    [PREAMBLE]  <-- trailing marker so the last group decodes
+    [PREAMBLE] [data]...[data]   } sync_every_blocks per group, repeat
+    [PREAMBLE] [data]...[data]
+    [PREAMBLE]                     trailing marker
 
-* PREAMBLE is a short fixed PN symbol pattern used for RX symbol alignment;
-  RX finds every occurrence by correlation, then extracts the data blocks
-  between adjacent preambles.
-* Each data block carries ``rs_data_bytes`` payload bytes through:
-    RS(N,K)+CRC  →  rate-1/2 K=7 convolutional (per-block, with tail bits)
-                 →  block-local interleaver  →  4-FSK.
-
-There is no packet boundary and no length header. TX reads arbitrary bytes,
-pads to the RS block boundary with zeros, and streams. RX emits every
-successfully-decoded data-block payload concatenated. Missing/undecodable
-blocks are silently dropped.
+Data block: RS(N,K)+CRC -> K=7 rate-1/2 conv -> interleave -> 4-FSK.
+No length header; missing blocks silently dropped.
 """
 
 from __future__ import annotations
@@ -76,15 +65,11 @@ class ModemConfig:
     sync_every_blocks: int = 4
     """Preamble inserted at the start and every N data blocks thereafter."""
     block_repeats: int = 1
-    """Each RS block is transmitted this many times, round-robin across the
-    current sync group. RX averages symbol magnitudes across copies before
-    Viterbi+RS. Gives ~3 dB per doubling in AWGN; time-diversity across
-    ``sync_every_blocks`` positions helps against burst fades too.
-    """
+    """Each RS block sent this many times, round-robin. RX combines soft
+    LLRs across copies before Viterbi+RS. ~3 dB per doubling in AWGN."""
     coarse_frequency_search_hz: float = 500.0
-    """Half-range in Hz for FFT-based coarse LO-offset search before preamble
-    sync. Always on by default -- costs ~50 ms per decode and handles typical
-    HF LO / dial drift up to a few hundred Hz."""
+    """Half-range for pre-sync FFT LO-offset search, in Hz. ~50 ms per
+    decode; covers typical HF dial drift."""
     frequency_search_hz: float = 20.0
     frequency_resolution_hz: float = 1.0
 
@@ -146,21 +131,10 @@ def _decode_one_block(magnitudes: np.ndarray, config: ModemConfig, codec: RSBloc
 
 
 def encode(input_bytes: bytes, config: ModemConfig) -> np.ndarray:
-    """Encode arbitrary-length bytes into a float32 audio stream.
+    """Encode bytes to float32 audio. Zero-pads to RS-block boundary.
 
-    Input is padded up to the next ``rs_data_bytes`` boundary with zeros.
-    Emits ``[preamble][group of M data blocks, round-robin repeated R times]``
-    per sync period; where M = sync_every_blocks (or fewer for the trailing
-    group) and R = block_repeats. Round-robin order interleaves copies so a
-    burst affecting one copy's time-slot leaves the other copies intact.
-
-    Frame::
-
-        [preamble] [b1 b2 ... bM b1 b2 ... bM ...]    <- R copies, round-robin
-                    group repeated R times back-to-back
-        [preamble] [b(M+1) ... b(2M) ...]
-        ...
-        [preamble] (trailing)
+    Frame per sync period: ``[preamble][b1..bM b1..bM ...]`` R copies
+    round-robin (burst-tolerant); trailing preamble marks the end.
     """
     codec = config.rs_codec()
     data_bytes = codec.config.data_bytes
@@ -198,27 +172,12 @@ _log = _logging.getLogger("weaklink.decode")
 
 
 def decode(samples: np.ndarray, config: ModemConfig, *, streaming: bool = False):
-    """Decode an audio stream to bytes. Missing/undecodable blocks are dropped.
+    """Decode audio to bytes; undecodable blocks are dropped.
 
-    ``streaming=False`` (default): batch mode. Treats end-of-signal as an
-    implicit trailing preamble so the last group is decoded even if its
-    trailing preamble was corrupted. Returns ``bytes``.
-
-    ``streaming=True``: incremental mode. Only decodes groups fully bracketed
-    by two real preambles; the tail after the last preamble is left for the
-    next call. Returns ``(bytes, safe_cursor_samples)`` where
-    ``safe_cursor_samples`` is the sample offset of the last real preamble --
-    callers should keep this preamble in the next decode window and slice
-    everything before it off.
-
-    Frequency-offset tracking is per-preamble: after the global coarse search,
-    each detected sync marker gets its own fine-offset estimate, and the data
-    group that follows is demodulated using that per-group offset.
-
-    Diagnostics go through the standard ``logging`` module (logger name
-    ``weaklink.decode``). At default INFO level the codec is silent aside
-    from ``WARN`` on successful RS corrections and ``ERROR`` on RS failures.
-    Set the CLI ``--modem-debug`` flag to see the per-decode chatter.
+    Batch mode (``streaming=False``) returns ``bytes``. Streaming mode
+    returns ``(bytes, safe_cursor_samples)`` -- cursor is the last real
+    preamble; keep it and slice everything before for the next call.
+    Coarse offset then per-preamble fine offset. Logger: ``weaklink.decode``.
     """
     if len(samples) == 0:
         _log.debug("empty sample buffer; nothing to decode")
@@ -263,11 +222,9 @@ def decode(samples: np.ndarray, config: ModemConfig, *, streaming: bool = False)
         _log.debug("no preambles above threshold")
         return (b"", 0) if streaming else b""
     if streaming and len(peaks) < 2:
-        # Only one preamble seen -- keep it as an anchor for the next call
-        # UNLESS enough audio has passed that the trailing preamble should
-        # have already arrived. In that case the transmission was truncated
-        # or this peak was a false positive; advance past it so we stop
-        # re-finding it every poll.
+        # Keep the lone preamble as anchor for next call, unless enough
+        # audio has passed that the trailing one should already have
+        # arrived -- then it's stale (truncated tx or false peak), skip it.
         preamble_length = len(preamble)
         max_group_symbols = config.sync_every_blocks * _block_symbol_length(config) + preamble_length
         symbols_past_preamble = coarse_magnitudes.shape[0] - peaks[0]
@@ -279,8 +236,7 @@ def decode(samples: np.ndarray, config: ModemConfig, *, streaming: bool = False)
             return b"", (peaks[0] + preamble_length) * samples_per_symbol
         return b"", peaks[0] * samples_per_symbol
 
-    # 3. Per-preamble fine offset. Each peak gets its own estimate so slow
-    # drift across the transmission is tracked marker by marker.
+    # 3. Per-preamble fine offset -- tracks drift marker by marker.
     per_peak_offsets: list[float] = []
     for peak in peaks:
         preamble_sample_start = peak * samples_per_symbol
@@ -306,41 +262,15 @@ def decode(samples: np.ndarray, config: ModemConfig, *, streaming: bool = False)
     # it drifted significantly from the coarse baseline; otherwise reuse the
     # already-computed coarse magnitudes.
     if streaming:
-        # Only decode groups bounded by two real preambles; the tail after the
-        # last preamble might be an incomplete group and should wait.
+        # Group is one preamble pair; tail after the last one may be
+        # incomplete, so leave it for the next call.
         peaks_with_end = peaks
     else:
-        # Project a virtual leading preamble one group's-worth before the
-        # first real preamble. Recovers head-chopped signals (rx started
-        # late, leading preamble lost to sink wake-up) by treating the
-        # pair (virtual, first_real) as a normal group. If the projection
-        # lands *before* the buffer start we zero-pad the magnitude window
-        # for the missing symbols and let Reed-Solomon carry the load --
-        # up to a byte of front-loaded loss is well within RS(28,16)'s
-        # correction budget. For unchopped signals the virtual peak sits
-        # inside the pilot and the pair decodes to garbage that CRC + RS
-        # quietly discard.
-        #
-        # Force the virtual group to use coarse-offset directly (pin its
-        # per-peak offset to coarse_offset) so the fine-offset re-demod
-        # path -- which uses un-padded ``samples`` and would index into
-        # the wrong region after magnitudes get padded -- is never taken.
-        # Project virtual preambles on both ends of the peak list so a
-        # chopped leading (rx started late) or chopped trailing (rx Ctrl-C'd
-        # early / sink underran) preamble both stay recoverable. Each
-        # virtual preamble sits one group's-worth from the nearest real
-        # peak; if that projection lands outside the buffer we pad
-        # ``coarse_magnitudes`` and ``samples`` with zeros for the missing
-        # symbols and let Reed-Solomon carry the recovery. Up to about a
-        # byte's worth of front- or back-loaded loss is inside RS(28,16)'s
-        # correction budget. For unchopped signals the virtual peaks sit
-        # inside pilot / silence and the resulting groups quietly fail
-        # CRC + RS.
-        #
-        # Force the virtual groups to use coarse-offset directly -- the
-        # fine-offset re-demod path uses ``samples`` at padded indices, so
-        # we pin those offsets to coarse to guarantee it takes the
-        # coarse-magnitudes-only branch.
+        # Virtual leading/trailing preambles one group's-worth from the
+        # nearest real peak recover head/tail chops. Zero-pad magnitudes +
+        # samples if the projection is outside the buffer; RS mops up.
+        # Pin virtual offsets to coarse so we skip re-demod (which would
+        # index un-padded samples with padded coords).
         block_length_symbols = _block_symbol_length(config)
         group_symbol_span = config.block_repeats * block_length_symbols
 
@@ -390,12 +320,9 @@ def decode(samples: np.ndarray, config: ModemConfig, *, streaming: bool = False)
     total_blocks_attempted = 0
     total_blocks_decoded = 0
     total_rs_errors_corrected = 0
-    # A legitimate group carries at most ``sync_every_blocks`` data blocks,
-    # each transmitted ``block_repeats`` times. Any pair of preambles that
-    # spans more than this cannot be the two ends of a single group -- they
-    # must belong to *different* transmissions with silence (or garbage)
-    # between them. Skip the fake group rather than pushing garbage bits
-    # through Viterbi and blowing up in RS.
+    # Max legit group span = sync_every_blocks * block_repeats slots.
+    # Wider means the two preambles are from different transmissions with
+    # silence between -- skip so we don't Viterbi garbage into RS.
     max_group_span_symbols = config.sync_every_blocks * repeats * block_length
     for peak_index in range(len(peaks_with_end) - 1):
         group_start = peaks_with_end[peak_index] + len(preamble)
@@ -437,9 +364,8 @@ def decode(samples: np.ndarray, config: ModemConfig, *, streaming: bool = False)
         group_rs_errors = 0
         for block_index in range(num_data_blocks):
             total_blocks_attempted += 1
-            # Sum LLRs across copies rather than magnitudes; max-log-MAP is
-            # non-linear, so per-copy LLR extraction then summation gets more
-            # of the theoretical combining gain at low SNR.
+            # Sum LLRs (not magnitudes) across copies: max-log-MAP is
+            # non-linear, so per-copy LLR + sum gets more combining gain.
             combined_soft: np.ndarray | None = None
             for copy_index in range(repeats):
                 copy_position = base_offset_in_group + (copy_index * num_data_blocks + block_index) * block_length
@@ -504,34 +430,11 @@ def _decode_one_block_from_soft(
 def _find_preamble_peaks(
     magnitudes: np.ndarray, preamble: np.ndarray, config: ModemConfig
 ) -> list[int]:
-    """Return preamble positions using an **amplitude-normalised** correlator.
+    """Amplitude-normalised correlator: score / window-total-energy.
 
-    Naive fix -- take ``sum(wanted - avg_of_others)`` per window -- ties the
-    score to signal amplitude. Under 10 dB fading a strong preamble at the
-    peak of a fade cycle scores ~10× higher than a weak preamble at the
-    trough, and any ratio-of-peak threshold masks the weak ones. We instead
-    normalise each score by that window's total tone energy:
-
-        normalised = sum_i (wanted[i] - mean_others[i]) / sum_i (total energy)
-
-    Real preambles concentrate all per-symbol energy on the matched tone, so
-    the normalised score approaches its theoretical maximum regardless of
-    amplitude. Random data and noise concentrate energy across tones roughly
-    uniformly and score close to zero. Fading multiplies numerator and
-    denominator by the same factor -- the ratio is invariant.
-
-    Detection then has two knobs:
-
-    1. **Signal-presence gate:** peak normalised score must sit at least
-       ``6σ`` above the median-based noise floor. Below that we treat the
-       buffer as noise-only and return [].
-    2. **Candidate selection:** everything ``>= 5σ`` above the noise floor
-       is a peak candidate. Absolute-σ, not ratio-of-peak, so a strong
-       preamble no longer sets the bar unreachably high for faded ones.
-       Autocorrelation sidelobes and partial-match false alarms sit around
-       3–4 σ; real preambles at any fade level land at 8–10 σ, so 5σ leaves
-       a clean gap. Anything false that still slips through gets discarded
-       downstream by CRC + RS.
+    Fade-invariant. Real preambles land at ~1.0; noise at ~0; sidelobes
+    around 0.3. Gate: peak >= median + 6σ (else noise-only, return []).
+    Accept anything >= median + 5σ; CRC + RS filter anything that slips.
     """
     preamble_length = len(preamble)
     if magnitudes.shape[0] < preamble_length:

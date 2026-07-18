@@ -1,14 +1,7 @@
 """Regression tests for the preamble correlator + signal-presence gate.
 
-Guards against three bugs we've hit:
-  1. On pure-noise buffers, the old ``threshold = 0.7 * max(scores)`` rule
-     accepted a single noise extremum, returning ``[1 peak at 0]``. Live rx
-     then got stuck at the same cursor position and never advanced.
-  2. A strong buffer-edge transient (e.g. mic startup click) would raise the
-     ratio threshold above every real preamble that followed, so nothing
-     could be decoded until the transient rolled out of the buffer.
-  3. A short synthetic buffer with only random data (no preamble) must not
-     produce false-positive "sync markers".
+Guards against: pure-noise "1 peak at [0]" stuck state, buffer-edge
+transient masking real preambles, and false positives on random data.
 """
 
 from __future__ import annotations
@@ -81,11 +74,8 @@ def test_random_data_without_preamble_produces_no_false_peaks(config: ModemConfi
 
 @pytest.mark.parametrize("baud", [45, 300])
 def test_decode_under_10db_slow_fading(baud: int) -> None:
-    """10 dB peak-to-trough sinusoidal fading -- amplitude ranges 0.316× to 1.0×
-    across the transmission. The amplitude-normalised correlator must still
-    find every real preamble because the score is scale-invariant.
-
-    Preset lifted from ``weaklink.modem.cli.BAUD_PRESETS``."""
+    """10 dB peak-to-trough sinusoidal fade; scale-invariant correlator
+    still finds every preamble. Preset from ``BAUD_PRESETS``."""
     presets = {
         45:  dict(rs_data_bytes=32, rs_parity_bytes=8, block_repeats=2, sync_every_blocks=4),
         300: dict(rs_data_bytes=16, rs_parity_bytes=8, block_repeats=1, sync_every_blocks=4),

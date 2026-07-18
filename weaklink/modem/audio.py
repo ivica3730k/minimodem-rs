@@ -1,23 +1,10 @@
-"""Audio I/O: WAV files (soundfile) + two live-audio backends (sounddevice /
-PortAudio and ``paplay`` / ``parec`` subprocess for explicit Pulse routing).
+"""Audio I/O: WAV via soundfile; live via sounddevice/PortAudio or
+``paplay``/``parec`` subprocess when the target is a named Pulse endpoint
+(PortAudio's Pulse compat doesn't reliably honour PULSE_* / PIPEWIRE_NODE).
 
-Device hints go through :func:`resolve_audio_target` and land in one of four
-paths:
-
-1. **Integer index**: bare digits -> raw ``sounddevice.query_devices()`` index.
-2. **Substring against sounddevice**: any device whose name contains the hint
-   or vice versa.
-3. **Pulse sink / source name**: contains a ``.`` (e.g. ``virt.monitor``) or
-   didn't match any sounddevice, and ``paplay`` / ``parec`` is on PATH. We use
-   the subprocess backend and route via ``--device=<name>``. This bypasses
-   PortAudio's Pulse compat layer entirely -- necessary because PortAudio
-   doesn't reliably honour ``PULSE_SINK`` / ``PULSE_SOURCE`` / ``PIPEWIRE_NODE``
-   for streams it opens through pipewire-pulse.
-4. **Nothing given / no match**: use PortAudio's default (respecting whatever
-   the OS considers the default input / output).
-
-Both dependencies are imported lazily so pure-DSP tests can run without an
-audio server or CLI helpers installed.
+Device hints resolved by :func:`resolve_audio_target`: integer index,
+sounddevice-name substring, Pulse sink/source name (via subprocess), or
+default. Deps loaded lazily so DSP-only tests don't need an audio server.
 """
 
 from __future__ import annotations
@@ -104,9 +91,8 @@ def resolve_audio_target(name_hint: str | None, *, kind: str) -> AudioTarget:
         if info.get(channel_attr, 0) <= 0:
             continue
         name = str(info.get("name", "")).lower()
-        # Ignore the abstract Pulse/PipeWire compat devices in the substring
-        # pass; they'd match anything containing "pulse"/"pipewire" and rob
-        # the Pulse subprocess path of its chance.
+        # Skip the abstract Pulse/PipeWire compat devices so the subprocess
+        # path can claim named Pulse endpoints.
         if name in ("pulse", "pipewire", "default"):
             continue
         if hint_lower in name or name in hint_lower:
@@ -159,23 +145,17 @@ def _play_pulse(samples: np.ndarray, sample_rate: int, sink_name: str) -> None:
         stdin=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
-    # Let communicate() handle stdin write + close + stderr read + wait as one
-    # atomic step; manual close before communicate() double-closes stdin and
-    # raises ValueError on Python 3.12.
+    # Let communicate() own stdin + stderr; manual close double-closes on 3.12.
     _, err = proc.communicate(input=samples.tobytes())
     if proc.returncode != 0:
         raise RuntimeError(f"paplay exited {proc.returncode}: {err.decode(errors='replace')}")
 
 
 class LiveInputStream:
-    """Uniform live-audio input abstraction over sounddevice or ``parec``.
+    """Uniform live-audio input over sounddevice or ``parec``.
 
-    Context manager. On entry, opens the underlying stream and starts a
-    producer that pushes ``(samples_1d_float32,)`` chunks to ``callback``. On
-    exit, cleans up.
-
-    Poll cadence: same on both backends -- the caller can ``sd.sleep(ms)`` or
-    ``time.sleep(ms/1000)`` between polls. Both work.
+    Context manager. Pushes 1-D float32 chunks to ``callback`` from a
+    producer thread; caller polls with ``time.sleep`` between checks.
     """
 
     def __init__(

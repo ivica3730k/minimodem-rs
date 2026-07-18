@@ -1,19 +1,10 @@
-"""Streaming modem CLI.
+"""Streaming modem CLI. Bytes on stdin/stdout, samples via WAV or live audio.
 
-Byte-side I/O is always stdin/stdout — use shell redirection for files or
-pipes. Sample-side I/O is either a WAV file (``--modem-wav``) or the default
-live audio device.
+Baud presets in ``BAUD_PRESETS`` (9/45/300/1200); anything else raises.
+Explicit ``--modem-*`` flags override the preset.
 
-Presets: for each tested baud in ``BAUD_PRESETS`` (9, 45, 300, 1200) the RS
-config, block-repeat count, and sync marker density default to the values
-that measured best in the AWGN benchmark. Any explicit ``--modem-*`` flag
-overrides the preset. Off-preset baud rates fall back to the 300-baud
-preset with a stderr warning.
-
-    echo -n "hello over air" | weaklink-9a3ice tx --modem-wav out.wav
-    cat message.txt         | weaklink-9a3ice tx                     # live TX
-    weaklink-9a3ice rx --modem-wav out.wav > received.bin
-    weaklink-9a3ice rx                                                # live RX, Ctrl-C to stop
+    echo -n "hi" | weaklink-9a3ice tx --modem-wav out.wav
+    weaklink-9a3ice rx --modem-wav out.wav
 """
 
 from __future__ import annotations
@@ -31,13 +22,9 @@ DEFAULT_LOG_PATH = Path("log.txt")
 _log = logging.getLogger("weaklink.cli")
 
 
-# Per-baud preset: RS parameters, block repetition, sync marker density
-# picked from the measured AWGN benchmark cliff-optimum for each tested baud.
-# Off-preset baud rates fall back to the 300-baud preset with a warning.
-#: Hard-coded per-baud presets. ``tone_spacing_hz`` widens the tone stack at
-#: low bauds (default ``spacing = baud`` clusters the tones inside <200 Hz,
-#: which hits room modes and mic-response variation hard on acoustic paths).
-#: Only these bauds are supported; anything else raises NotImplementedError.
+# Per-baud presets. ``tone_spacing_hz`` widened at low bauds so the four
+# tones spread across enough Hz to survive room modes and mic roll-off.
+# Only these bauds are supported; anything else raises NotImplementedError.
 BAUD_PRESETS: dict[float, dict[str, float]] = {
     9.0:    dict(tone_spacing_hz=100.0, rs_data_bytes=16, rs_parity_bytes=8,  block_repeats=2, sync_every_blocks=4),
     45.0:   dict(tone_spacing_hz=200.0, rs_data_bytes=32, rs_parity_bytes=8,  block_repeats=2, sync_every_blocks=4),
@@ -186,27 +173,18 @@ def _make_config(args: argparse.Namespace) -> ModemConfig:
     )
 
 
-#: Pilot duration on each side of the modem signal on live-tx paths. Only
-#: two hard requirements: (a) wake the sink from IDLE, which takes ~50 ms;
-#: (b) give the coarse-offset FFT some real 4-FSK tone energy so it locks
-#: to offset 0 even before the payload preamble arrives.
+#: Pilot each side of live-tx: wakes the sink from IDLE (~50 ms) and
+#: gives the coarse-offset FFT real 4-FSK tone energy to lock onto.
 _LIVE_TX_PILOT_MIN_SECONDS: float = 0.2
 
-#: Floor on total live-tx duration. A 1200-baud single-char payload is
-#: ~250 ms of modem signal -- even with 200 ms pilots on each side the
-#: whole transmission fits inside RX's first buffer poll, and the leading
-#: preamble ends up straddling the pilot/signal boundary. Padding to at
-#: least ~1 s of total audio gives RX two clean poll windows to lock onto
-#: the preamble pair. For 45/9 baud the natural signal already exceeds
-#: this floor so no extra pilot is added.
+#: Floor on total live-tx duration. 1200-baud single-char is ~250 ms of
+#: signal -- too short to give RX two clean poll windows. Pad to 1 s.
 _LIVE_TX_MIN_SECONDS: float = 1.0
 
 
 def _pilot_signal(config: ModemConfig, duration_seconds: float) -> "np.ndarray":  # noqa: F821
-    """Produce ``duration_seconds`` of 4-FSK pilot -- modem-tone audio that
-    carries no data. Pseudo-random symbol sequence so all four tones are
-    exercised uniformly and the coarse-offset FFT sees real tone energy at
-    every expected position."""
+    """Random 4-FSK symbols for ``duration_seconds``. All four tones
+    exercised uniformly so the coarse-offset FFT locks cleanly."""
     import numpy as np
 
     from weaklink.modem.waveform import NUM_TONES, modulate
@@ -280,21 +258,15 @@ def _live_stream_decode(config: ModemConfig, *, audio_input: str | None = None) 
         _log.debug("audio input hint %r -> %s", hint, target.describe())
     sample_rate = int(round(config.waveform.sample_rate))
 
-    # Rolling audio buffer with a sample-cursor model. samples_before_buffer is
-    # how many samples we've already emitted-through and dropped from the head
-    # of the list. cursor is the absolute stream-position of the earliest
-    # sample we still need to consider for future decodes.
+    # Rolling buffer + sample cursor. ``samples_before_buffer`` = samples
+    # already dropped off the head; ``cursor`` = earliest stream position
+    # still relevant to future decodes.
     chunks: list[np.ndarray] = []
     samples_before_buffer = 0
     cursor = 0
 
-    # Buffer cap. Must hold the full worst-case group (preamble + all data
-    # blocks in one sync group at ``block_repeats`` copies) plus enough head
-    # room to cover buffer trimming latency. Scales with baud: at 9 baud a
-    # single-block payload's group is ~50 s, so a fixed 60 s cap would drop
-    # the leading preamble before the trailing one arrives, silently making
-    # 9 baud impossible to decode live. Minimum floor of 60 s so short-
-    # payload / fast-baud paths still have some slack.
+    # Buffer cap scales with baud: 9 baud groups are ~50 s so a fixed 60 s
+    # cap would drop the leading preamble before the trailing one lands.
     from weaklink.modem.codec import _block_symbol_length  # noqa: WPS433
 
     _max_group_symbols = (
@@ -321,11 +293,8 @@ def _live_stream_decode(config: ModemConfig, *, audio_input: str | None = None) 
         if not chunks:
             return
         total_samples_seen = _total_buffered()
-        # Enough audio to fit a leading preamble + one data block + trailing
-        # preamble -- the smallest window that could plausibly contain a
-        # decodable group. At 1200 baud that's ~240 ms; at 9 baud ~32 s.
-        # Retries every poll as buffer grows, so over-eager attempts are
-        # cheap on the fast bauds where they're most likely to happen.
+        # Smallest window that could plausibly contain a decodable group
+        # (two preambles + one block). 240 ms at 1200 baud, 32 s at 9.
         preamble_length_symbols = 32
         block_symbols = _block_symbol_length(config)
         min_group_symbols = 2 * preamble_length_symbols + block_symbols
@@ -354,8 +323,7 @@ def _live_stream_decode(config: ModemConfig, *, audio_input: str | None = None) 
                 chunks.pop(0)
             else:
                 break
-        # Emergency: if buffer still exceeds the cap (nothing decoded for a
-        # long time), drop the oldest samples anyway to keep memory bounded.
+        # Cap enforcement: drop oldest if nothing decoded in a long time.
         overflow = _total_buffered() - samples_before_buffer - MAX_WINDOW_SAMPLES
         while overflow > 0 and chunks:
             drop = min(overflow, chunks[0].size)
@@ -401,10 +369,8 @@ def _live_stream_decode(config: ModemConfig, *, audio_input: str | None = None) 
                 if poll_counter % snapshot_every_polls == 0:
                     _log_audio_snapshot()
     except KeyboardInterrupt:
-        # No final decode. Every byte that was ever going to be decodable
-        # was already emitted during the 10 Hz poll loop; running one last
-        # decode on the full retained buffer just adds a noticeable Ctrl-C
-        # hang, especially at slow bauds with 150+ s of audio retained.
+        # No final decode -- polling already emitted anything decodable,
+        # and re-decoding the full buffer would add a Ctrl-C hang.
         _log.debug("live rx: keyboard interrupt, exiting")
     return 0
 

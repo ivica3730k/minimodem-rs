@@ -1,21 +1,7 @@
-"""End-to-end WAV robustness tests: encode -> corrupt -> decode.
+"""WAV robustness tests: encode -> damage -> decode.
 
-Simulates the acoustic imperfections that keep breaking real live-audio
-tx/rx setups, without needing PulseAudio or a running audio server:
-
-* **Head chop** -- RX started after TX did, so the leading pilot + first
-  N ms of modem signal never made it into the RX buffer.
-* **Tail chop** -- RX Ctrl-C'd or the sink under-ran before the trailing
-  pilot flushed; last N ms are missing.
-* **Slow fading** -- sinusoidal amplitude envelope varying 10 dB
-  peak-to-trough across the transmission; every preamble sees a
-  different fade phase.
-* **Compound damage** -- head chop + fade at once, the worst-plausible
-  combination in a real acoustic loop.
-
-Uses the same pilot-padded live-tx buffer the CLI produces, so what
-gets damaged is *exactly* what would hit the wire. Portable across
-Linux / macOS / CI -- no audio server required.
+Damages the same pilot-padded buffer the CLI writes to the wire:
+head/tail chop, slow fading, compound. Portable, no audio server needed.
 """
 
 from __future__ import annotations
@@ -92,12 +78,9 @@ for baud in (9, 45, 300, 1200):
             continue  # ~4 min encode; single-char covers 9-baud
         CASES.append((baud, payload, "clean", lambda a, sr: a))
 
-# Head chop: RX started late. Decoder projects a virtual leading preamble
-# one group's-worth before the first real preamble; if the projection
-# lands before the buffer start (chop reached into the leading preamble
-# or beyond) the missing symbols get zero-padded and Reed-Solomon
-# carries the recovery. Test up to 500 ms which covers realistic sink
-# wake-up + a wide latency budget.
+# Head chop: RX started late. Decoder projects a virtual leading
+# preamble; if it lands past buffer start, magnitudes get zero-padded
+# and RS mops up. Test up to 500 ms.
 for baud in (45, 300, 1200):
     for chop_ms in (100.0, 300.0, 500.0):
         CASES.append((

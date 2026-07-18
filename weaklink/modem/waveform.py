@@ -1,24 +1,8 @@
-"""4-FSK waveform: continuous-phase FSK modulator + non-coherent soft demodulator.
+"""4-FSK CPFSK modulator + non-coherent soft demodulator.
 
-Design choices
-==============
-- **4 tones, 2 bits per symbol.** Two bits per symbol at 300 baud gives 600 raw
-  channel bits/second (300 net after rate-1/2 FEC), fitting comfortably in an
-  SSB voice passband.
-- **Continuous-phase FSK.** We keep phase continuous across symbol boundaries
-  so the transmitted spectrum stays narrow — a big deal for weak-signal work
-  since spectral splatter is wasted power.
-- **Non-coherent demodulation.** We correlate each symbol against I and Q of
-  each tone and take the magnitude sqrt(I^2+Q^2). This avoids carrier phase
-  recovery (which is fragile at low SNR) at a ~3 dB cost vs. coherent detection.
-- **Soft output.** For each of the two bits inside a symbol, the demodulator
-  emits an LLR-shaped soft value computed by max-log-MAP: for each bit
-  position, LLR ≈ max_{symbols with bit=0}(|corr|^2) − max_{symbols with bit=1}(|corr|^2).
-  This isn't a true LLR but preserves the ordering the Viterbi decoder needs
-  and is scale-tolerant.
-
-Bit-to-symbol mapping is Gray-coded (00→tone0, 01→tone1, 11→tone2, 10→tone3) so
-that adjacent-tone confusions cost only one bit.
+Continuous-phase for narrow spectrum, non-coherent I/Q magnitudes (~3 dB
+worse than coherent but no carrier recovery). Gray-coded symbols so
+adjacent-tone confusions cost one bit. Max-log-MAP soft output per bit.
 """
 
 from __future__ import annotations
@@ -30,9 +14,7 @@ import numpy as np
 BITS_PER_SYMBOL = 2
 NUM_TONES = 4  # 2 ** BITS_PER_SYMBOL
 
-# Uniform 4-FSK tone spacing. Total stack span is 3 x tone_spacing_hz, so at
-# 700 baud with 700 Hz spacing the four tones cover ~2.1 kHz -- fits inside a
-# standard 2.8 kHz SSB voice passband with room to spare.
+# Uniform 4-FSK tone spacing. Total span = 3 * tone_spacing_hz.
 UNIFORM_4_OFFSETS: tuple[float, ...] = (0.0, 1.0, 2.0, 3.0)
 _UNIFORM_4_MEAN: float = sum(UNIFORM_4_OFFSETS) / len(UNIFORM_4_OFFSETS)
 
@@ -147,22 +129,12 @@ def estimate_coarse_frequency_offset(
     *,
     search_range_hz: float = 1500.0,
 ) -> float:
-    """FFT-based coarse offset estimate.
+    """FFT coarse-offset estimate via geometric-mean scoring on all 4 tones.
 
-    Sweeps candidate offsets and picks the one where FFT magnitude is
-    strongest at all 4 expected tone positions *simultaneously*. Uses the
-    geometric-mean scoring (sum of logs) so a single spectrum peak can't
-    win against a balanced 4-tone fit -- important because short-payload
-    encoded signals routinely have one tone dominating the others by 10-40x
-    (e.g. a zero-padded RS block after rate-1/2 conv encoding maps mostly
-    to symbol 0). Under sum-of-magnitudes scoring the estimator would then
-    pick whichever offset landed that dominant peak on any candidate slot;
-    geometric-mean requires actual energy at every one of the four.
-
-    Each candidate tone position is smoothed over a ±3-bin window to
-    tolerate the frequency smearing that continuous-phase FSK produces
-    around each nominal tone. Resolution: ~sample_rate / len(samples),
-    capped at 2 Hz sweep step for speed.
+    Sum-of-magnitudes would let one dominant peak (common for
+    zero-padded short payloads) drag the offset off; geometric mean
+    requires energy at every candidate slot. Each bin smoothed ±10 Hz
+    to absorb CPFSK spectral smearing. Step capped at 2 Hz.
     """
     if len(samples) == 0:
         return 0.0
@@ -203,15 +175,11 @@ def estimate_frequency_offset(
     resolution_hz: float = 1.0,
     prior_offset_hz: float = 0.0,
 ) -> float:
-    """Estimate the TX/RX frequency offset from a known symbol sequence.
+    """Fine offset from a known symbol sequence (usually the preamble).
 
-    Given ``samples`` known to contain ``expected_symbols`` (e.g. the preamble),
-    sweep frequency offsets in ``[prior_offset_hz ± search_range_hz]`` and pick
-    the one that maximises the total energy landing on the "correct" tone
-    across all preamble positions.
-
-    Returns the absolute offset in Hz (not a residual). ``prior_offset_hz`` is
-    where the coarse stage put us; the fine stage refines around it.
+    Sweeps ``[prior_offset_hz ± search_range_hz]`` at ``resolution_hz`` and
+    picks the offset maximising energy at the correct tone per symbol.
+    Returns absolute offset in Hz.
     """
     samples_per_symbol = config.samples_per_symbol
     expected_length = len(expected_symbols) * samples_per_symbol
@@ -254,10 +222,7 @@ def soft_bits_from_magnitudes(magnitudes_sq: np.ndarray) -> np.ndarray:
     if num_symbols == 0:
         return np.zeros(0, dtype=np.float64)
 
-    # For each bit position, find the max magnitude among symbols whose bit is 0
-    # vs. symbols whose bit is 1. This is max-log-MAP: the LLR of a bit is
-    # approximated by the difference of the log-likelihoods of its most-likely
-    # 0-symbol and 1-symbol.
+    # Max-log-MAP per bit: LLR ≈ max(0-symbol likelihood) - max(1-symbol).
     bit_masks = np.asarray(GRAY_TO_BITS, dtype=np.int8)  # shape (4, 2)
     llrs = np.empty((num_symbols, BITS_PER_SYMBOL), dtype=np.float64)
     for bit_position in range(BITS_PER_SYMBOL):
