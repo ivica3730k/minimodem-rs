@@ -309,6 +309,9 @@ def _live_stream_decode(config: ModemConfig, *, audio_input: str | None = None) 
         if window.size < sample_rate:
             return
         decoded, safe_cursor_offset = decode(window, config, streaming=True)
+        # Strip trailing NULs -- RS-block padding at the tail of a payload,
+        # not real data. Matches the batch-mode rx behaviour.
+        decoded = decoded.rstrip(b"\x00")
         if decoded:
             sys.stdout.buffer.write(decoded)
             sys.stdout.buffer.flush()
