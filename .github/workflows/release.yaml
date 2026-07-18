@@ -89,14 +89,14 @@ jobs:
 
       - name: Make static binary (versioned + -latest aliases)
         run: |
-          staticx dist/weaklink-9a3ice dist/weaklink-9a3ice-linux-x86_64-v${{ steps.ver.outputs.version }}
-          cp dist/weaklink-9a3ice-linux-x86_64-v${{ steps.ver.outputs.version }} dist/weaklink-9a3ice-linux-x86_64-latest
+          staticx dist/weaklink-9a3ice dist/weaklink-9a3ice-linux-x86_64-${{ steps.ver.outputs.version }}
+          cp dist/weaklink-9a3ice-linux-x86_64-${{ steps.ver.outputs.version }} dist/weaklink-9a3ice-linux-x86_64-latest
 
       - name: Upload to release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/weaklink-9a3ice-linux-x86_64-v${{ steps.ver.outputs.version }}
+            dist/weaklink-9a3ice-linux-x86_64-${{ steps.ver.outputs.version }}
             dist/weaklink-9a3ice-linux-x86_64-latest
 
   build-deb:

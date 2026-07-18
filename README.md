@@ -20,7 +20,7 @@ chmod +x weaklink-9a3ice-linux-x86_64-latest
 
 The `-latest` suffix is a stable filename that CI overwrites on every
 release, so the URL above never rots. If you want to pin a specific
-version, grab `weaklink-9a3ice-linux-x86_64-vX.Y.Z` from that release.
+version, grab `weaklink-9a3ice-linux-x86_64-X.Y.Z` from that release.
 
 **Or install the `.deb`** on Debian / Ubuntu (puts `weaklink-9a3ice` on `PATH`):
 
