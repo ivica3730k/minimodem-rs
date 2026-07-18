@@ -34,13 +34,16 @@ _log = logging.getLogger("weaklink.cli")
 # Per-baud preset: RS parameters, block repetition, sync marker density
 # picked from the measured AWGN benchmark cliff-optimum for each tested baud.
 # Off-preset baud rates fall back to the 300-baud preset with a warning.
-BAUD_PRESETS: dict[float, dict[str, int]] = {
-    9.0:    dict(rs_data_bytes=16, rs_parity_bytes=8,  block_repeats=2, sync_every_blocks=4),
-    45.0:   dict(rs_data_bytes=32, rs_parity_bytes=8,  block_repeats=2, sync_every_blocks=4),
-    300.0:  dict(rs_data_bytes=16, rs_parity_bytes=8,  block_repeats=1, sync_every_blocks=4),
-    1200.0: dict(rs_data_bytes=16, rs_parity_bytes=8,  block_repeats=1, sync_every_blocks=4),
+#: Hard-coded per-baud presets. ``tone_spacing_hz`` widens the tone stack at
+#: low bauds (default ``spacing = baud`` clusters the tones inside <200 Hz,
+#: which hits room modes and mic-response variation hard on acoustic paths).
+#: Only these bauds are supported; anything else raises NotImplementedError.
+BAUD_PRESETS: dict[float, dict[str, float]] = {
+    9.0:    dict(tone_spacing_hz=100.0, rs_data_bytes=16, rs_parity_bytes=8,  block_repeats=2, sync_every_blocks=4),
+    45.0:   dict(tone_spacing_hz=200.0, rs_data_bytes=32, rs_parity_bytes=8,  block_repeats=2, sync_every_blocks=4),
+    300.0:  dict(tone_spacing_hz=300.0, rs_data_bytes=16, rs_parity_bytes=8,  block_repeats=1, sync_every_blocks=4),
+    1200.0: dict(tone_spacing_hz=1200.0, rs_data_bytes=16, rs_parity_bytes=8, block_repeats=1, sync_every_blocks=4),
 }
-FALLBACK_PRESET_BAUD: float = 300.0
 
 
 def _add_modem_args(sub: argparse.ArgumentParser) -> None:
@@ -51,15 +54,9 @@ def _add_modem_args(sub: argparse.ArgumentParser) -> None:
     ``--modem-*`` values still win.
     """
     modem = sub.add_argument_group("modem", "modem-layer configuration + sample-side I/O")
-    modem.add_argument("--modem-baud", type=float, default=300.0, dest="modem_baud")
+    modem.add_argument("--modem-baud", type=float, default=300.0, dest="modem_baud",
+                       help=f"Symbol rate. Supported values: {sorted(BAUD_PRESETS.keys())}.")
     modem.add_argument("--modem-sample-rate", type=float, default=48_000.0, dest="modem_sample_rate")
-    modem.add_argument(
-        "--modem-tone-spacing",
-        type=float,
-        default=None,
-        dest="modem_tone_spacing",
-        help="Base tone-spacing unit in Hz. Defaults to --modem-baud.",
-    )
     modem.add_argument(
         "--modem-rs-data-bytes",
         type=int,
@@ -141,30 +138,26 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _pick_preset(baud: float) -> dict[str, int]:
-    """Look up the preset for ``baud``; fall back to the 300-baud preset with a warning."""
-    if baud in BAUD_PRESETS:
-        return BAUD_PRESETS[baud]
-    _log.warning(
-        "baud %s is not in the tested preset set %s; falling back to the %g-baud preset. "
-        "Override any modem knob explicitly to silence this.",
-        baud, sorted(BAUD_PRESETS.keys()), FALLBACK_PRESET_BAUD,
-    )
-    return BAUD_PRESETS[FALLBACK_PRESET_BAUD]
+def _pick_preset(baud: float) -> dict[str, float]:
+    """Look up the preset for ``baud``. Only the four tested bauds are supported."""
+    if baud not in BAUD_PRESETS:
+        raise NotImplementedError(
+            f"baud {baud} is not supported; use one of {sorted(BAUD_PRESETS.keys())}"
+        )
+    return BAUD_PRESETS[baud]
 
 
 def _make_config(args: argparse.Namespace) -> ModemConfig:
     preset = _pick_preset(args.modem_baud)
-    tone_spacing = args.modem_tone_spacing if args.modem_tone_spacing is not None else args.modem_baud
-    rs_data_bytes = args.modem_rs_data_bytes if args.modem_rs_data_bytes is not None else preset["rs_data_bytes"]
-    rs_parity_bytes = args.modem_rs_parity_bytes if args.modem_rs_parity_bytes is not None else preset["rs_parity_bytes"]
-    sync_every = args.modem_sync_every_blocks if args.modem_sync_every_blocks is not None else preset["sync_every_blocks"]
-    block_repeats = args.modem_block_repeats if args.modem_block_repeats is not None else preset["block_repeats"]
+    rs_data_bytes = args.modem_rs_data_bytes if args.modem_rs_data_bytes is not None else int(preset["rs_data_bytes"])
+    rs_parity_bytes = args.modem_rs_parity_bytes if args.modem_rs_parity_bytes is not None else int(preset["rs_parity_bytes"])
+    sync_every = args.modem_sync_every_blocks if args.modem_sync_every_blocks is not None else int(preset["sync_every_blocks"])
+    block_repeats = args.modem_block_repeats if args.modem_block_repeats is not None else int(preset["block_repeats"])
     return ModemConfig(
         waveform=WaveformConfig(
             baud=args.modem_baud,
             sample_rate=args.modem_sample_rate,
-            tone_spacing_hz=tone_spacing,
+            tone_spacing_hz=preset["tone_spacing_hz"],
         ),
         rs_data_bytes=rs_data_bytes,
         rs_parity_bytes=rs_parity_bytes,
