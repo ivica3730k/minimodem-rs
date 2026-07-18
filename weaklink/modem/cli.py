@@ -186,18 +186,17 @@ def _make_config(args: argparse.Namespace) -> ModemConfig:
     )
 
 
-#: Pilot tone padded around the modem signal on live tx paths. Silence
-#: doesn't wake up an IDLE PipeWire / PulseAudio sink -- the sink stays
-#: parked and the first ~100 ms of the actual modem signal gets clipped on
-#: the way in. Playing an actual sinusoid forces the sink into RUNNING
-#: before the preamble arrives. Trailing pilot keeps the sink alive so the
-#: last modem chunk gets flushed too.
-#:
-#: 1500 Hz sits between all four preset tone stacks (below 45-baud lowest
-#: at 1200 Hz, above 300-baud lowest at 1050 Hz) so the pilot won't be
-#: mistaken for a modem tone by the correlator during buffer trimming.
+#: Broadband-noise padding around the modem signal on live tx paths.
+#: Silence doesn't wake an IDLE PipeWire / PulseAudio sink; a warm-up
+#: sample stream does. Earlier revisions used a sinusoid, but any pure
+#: tone creates a spectral spike that the coarse-offset FFT estimator
+#: locks onto and drags the whole correlator off the real modem tones.
+#: White noise has flat power spectral density -- it wakes the sink
+#: without biasing the FFT toward any particular frequency.
 _LIVE_TX_PILOT_SECONDS: float = 0.2
-_LIVE_TX_PILOT_HZ: float = 1500.0
+#: Pilot amplitude well below the modem signal so the sink's peak-limiter
+#: (if any) doesn't kick in and so the noise floor stays realistic.
+_LIVE_TX_PILOT_AMPLITUDE: float = 0.05
 
 
 def _run_tx(args: argparse.Namespace) -> int:
@@ -215,9 +214,12 @@ def _run_tx(args: argparse.Namespace) -> int:
 
         sample_rate = config.waveform.sample_rate
         pilot_frames = int(round(_LIVE_TX_PILOT_SECONDS * sample_rate))
-        t = np.arange(pilot_frames) / sample_rate
-        # Match the modem amplitude so the pilot doesn't spike vs the signal.
-        pilot = (config.waveform.amplitude * np.sin(2 * np.pi * _LIVE_TX_PILOT_HZ * t)).astype(np.float32)
+        # Deterministic seed keeps identical TX inputs producing identical
+        # audio -- easier to diagnose off-air captures if they diverge.
+        rng = np.random.default_rng(0xC0DE)
+        pilot = (
+            _LIVE_TX_PILOT_AMPLITUDE * rng.standard_normal(pilot_frames)
+        ).astype(np.float32)
         padded = np.concatenate([pilot, samples, pilot])
         play(padded, sample_rate, device=args.modem_audio_output)
     return 0
