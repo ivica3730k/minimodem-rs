@@ -36,13 +36,20 @@ BELOW_NOISE_CASES = [
 WAV_DIR = Path(__file__).resolve().parents[1] / "test_signals"
 
 
-@pytest.mark.parametrize("baud, filename, preset", BELOW_NOISE_CASES, ids=[f"{c[0]}baud" for c in BELOW_NOISE_CASES])
+@pytest.mark.parametrize(
+    "baud, filename, preset",
+    BELOW_NOISE_CASES,
+    ids=[f"{c[0]}baud{'_deep' if 'deep' in c[1] else ''}" for c in BELOW_NOISE_CASES],
+)
 def test_below_noise_floor_wav_decodes(baud: int, filename: str, preset: dict) -> None:
     wav_path = WAV_DIR / filename
     assert wav_path.exists(), f"missing test signal: {wav_path}"
 
+    # tone_spacing_hz belongs on WaveformConfig, everything else on ModemConfig
+    preset = dict(preset)
+    tone_spacing_hz = preset.pop("tone_spacing_hz")
     config = ModemConfig(
-        waveform=WaveformConfig(baud=float(baud), tone_spacing_hz=float(baud)),
+        waveform=WaveformConfig(baud=float(baud), tone_spacing_hz=tone_spacing_hz),
         **preset,
     )
     samples, _ = read_wav(wav_path, expected_sample_rate=config.waveform.sample_rate)
