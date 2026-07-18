@@ -189,10 +189,17 @@ def _make_config(args: argparse.Namespace) -> ModemConfig:
 #: Pilot duration on each side of the modem signal on live-tx paths. Only
 #: two hard requirements: (a) wake the sink from IDLE, which takes ~50 ms;
 #: (b) give the coarse-offset FFT some real 4-FSK tone energy so it locks
-#: to offset 0 even before the payload preamble arrives. 200 ms comfortably
-#: covers both without inflating short-payload transmissions. Independent
-#: of baud -- pilot is real modem symbols so density is the same.
-_LIVE_TX_PILOT_SECONDS: float = 0.2
+#: to offset 0 even before the payload preamble arrives.
+_LIVE_TX_PILOT_MIN_SECONDS: float = 0.2
+
+#: Floor on total live-tx duration. A 1200-baud single-char payload is
+#: ~250 ms of modem signal -- even with 200 ms pilots on each side the
+#: whole transmission fits inside RX's first buffer poll, and the leading
+#: preamble ends up straddling the pilot/signal boundary. Padding to at
+#: least ~1 s of total audio gives RX two clean poll windows to lock onto
+#: the preamble pair. For 45/9 baud the natural signal already exceeds
+#: this floor so no extra pilot is added.
+_LIVE_TX_MIN_SECONDS: float = 1.0
 
 
 def _pilot_signal(config: ModemConfig, duration_seconds: float) -> "np.ndarray":  # noqa: F821
@@ -223,9 +230,18 @@ def _run_tx(args: argparse.Namespace) -> int:
     else:
         from weaklink.modem.audio import play
 
-        pilot = _pilot_signal(config, _LIVE_TX_PILOT_SECONDS).astype(np.float32)
+        sample_rate = config.waveform.sample_rate
+        signal_seconds = len(samples) / sample_rate
+        # Pilot each side: at least ``_LIVE_TX_PILOT_MIN_SECONDS`` for
+        # sink-warmup / FFT lock, more if the signal is short enough that
+        # total tx would fall below ``_LIVE_TX_MIN_SECONDS``.
+        pilot_each_side = max(
+            _LIVE_TX_PILOT_MIN_SECONDS,
+            (_LIVE_TX_MIN_SECONDS - signal_seconds) / 2.0,
+        )
+        pilot = _pilot_signal(config, pilot_each_side).astype(np.float32)
         padded = np.concatenate([pilot, samples, pilot])
-        play(padded, config.waveform.sample_rate, device=args.modem_audio_output)
+        play(padded, sample_rate, device=args.modem_audio_output)
     return 0
 
 
