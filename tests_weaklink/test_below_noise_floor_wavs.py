@@ -19,18 +19,30 @@ from weaklink.modem.waveform import WaveformConfig
 
 EXPECTED_PAYLOAD = b"weaklink below-noise-floor test payload"
 
-# (baud, filename, default-preset kwargs matching weaklink.modem.cli.BAUD_PRESETS)
+# (baud, filename, config kwargs matching what was used to encode)
 BELOW_NOISE_CASES = [
+    # Default per-baud presets, 3 dB above cliff.
     (9,    "below_noise_9baud_snr-27dB.wav",    dict(rs_data_bytes=16, rs_parity_bytes=8, block_repeats=2, sync_every_blocks=4)),
     (45,   "below_noise_45baud_snr-21dB.wav",   dict(rs_data_bytes=32, rs_parity_bytes=8, block_repeats=2, sync_every_blocks=4)),
     (300,  "below_noise_300baud_snr-10dB.wav",  dict(rs_data_bytes=16, rs_parity_bytes=8, block_repeats=1, sync_every_blocks=4)),
     (1200, "below_noise_1200baud_snr-4dB.wav",  dict(rs_data_bytes=16, rs_parity_bytes=8, block_repeats=1, sync_every_blocks=4)),
+    # Aggressive (block_repeats=4) at 3 dB below the default-preset cliff --
+    # verifies the extra repeat pattern actually buys the coding gain the
+    # benchmark table claims.
+    (9,    "below_noise_deep_9baud_snr-30dB.wav",    dict(rs_data_bytes=16, rs_parity_bytes=8, block_repeats=4, sync_every_blocks=4)),
+    (45,   "below_noise_deep_45baud_snr-24dB.wav",   dict(rs_data_bytes=32, rs_parity_bytes=8, block_repeats=4, sync_every_blocks=4)),
+    (300,  "below_noise_deep_300baud_snr-13dB.wav",  dict(rs_data_bytes=16, rs_parity_bytes=8, block_repeats=4, sync_every_blocks=4)),
+    (1200, "below_noise_deep_1200baud_snr-7dB.wav",  dict(rs_data_bytes=16, rs_parity_bytes=8, block_repeats=4, sync_every_blocks=4)),
 ]
 
 WAV_DIR = Path(__file__).resolve().parents[1] / "test_signals"
 
 
-@pytest.mark.parametrize("baud, filename, preset", BELOW_NOISE_CASES, ids=[f"{c[0]}baud" for c in BELOW_NOISE_CASES])
+@pytest.mark.parametrize(
+    "baud, filename, preset",
+    BELOW_NOISE_CASES,
+    ids=[f"{c[0]}baud{'_deep' if 'deep' in c[1] else ''}" for c in BELOW_NOISE_CASES],
+)
 def test_below_noise_floor_wav_decodes(baud: int, filename: str, preset: dict) -> None:
     wav_path = WAV_DIR / filename
     assert wav_path.exists(), f"missing test signal: {wav_path}"
