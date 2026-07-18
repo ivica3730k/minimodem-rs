@@ -11,10 +11,10 @@ import pytest
 
 from weaklink.modem.codec import (
     ModemConfig,
+    PREAMBLE_SYMBOLS,
     _find_preamble_peaks,
     decode,
     encode,
-    preamble_symbols,
 )
 from weaklink.modem.waveform import WaveformConfig, demodulate_soft
 
@@ -29,7 +29,7 @@ def test_pure_noise_finds_no_preambles(config: ModemConfig) -> None:
     # 5 s of Gaussian noise at typical mic-input amplitude.
     noise = rng.standard_normal(int(5 * config.waveform.sample_rate)).astype(np.float32) * 0.05
     magnitudes = demodulate_soft(noise, config.waveform)
-    peaks = _find_preamble_peaks(magnitudes, preamble_symbols(), config)
+    peaks = _find_preamble_peaks(magnitudes, PREAMBLE_SYMBOLS, config)
     assert peaks == []
 
 
@@ -66,7 +66,7 @@ def test_random_data_without_preamble_produces_no_false_peaks(config: ModemConfi
     fake_symbols = rng.integers(0, 4, size=1000)
     audio = modulate(fake_symbols, config.waveform)
     magnitudes = demodulate_soft(audio, config.waveform)
-    peaks = _find_preamble_peaks(magnitudes, preamble_symbols(), config)
+    peaks = _find_preamble_peaks(magnitudes, PREAMBLE_SYMBOLS, config)
     # Random data has zero expected correlation to the fixed preamble PN
     # sequence, but variance is nonzero -- allow at most one spurious hit.
     assert len(peaks) <= 1, f"expected <=1 spurious peak on random data, got {peaks}"

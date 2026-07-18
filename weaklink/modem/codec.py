@@ -52,8 +52,9 @@ def _generate_preamble(length: int, seed: int = 0xC05A) -> tuple[int, ...]:
     return tuple(symbols)
 
 
-_PREAMBLE_SYMBOLS: tuple[int, ...] = _generate_preamble(PREAMBLE_LENGTH_SYMBOLS)
-_PREAMBLE_SYMBOLS_ARR: np.ndarray = np.asarray(_PREAMBLE_SYMBOLS, dtype=np.int8)
+PREAMBLE_SYMBOLS: np.ndarray = np.asarray(
+    _generate_preamble(PREAMBLE_LENGTH_SYMBOLS), dtype=np.int8
+)
 
 
 @dataclass(frozen=True)
@@ -94,10 +95,6 @@ class ModemConfig:
     @property
     def block_symbol_length(self) -> int:
         return _block_symbol_length(self)
-
-
-def preamble_symbols() -> np.ndarray:
-    return _PREAMBLE_SYMBOLS_ARR
 
 
 def _pad_zeros(
@@ -147,7 +144,7 @@ def encode(input_bytes: bytes, config: ModemConfig) -> np.ndarray:
     if remainder:
         input_bytes = input_bytes + b"\x00" * (data_bytes - remainder)
 
-    pre = preamble_symbols()
+    pre = PREAMBLE_SYMBOLS
     total_blocks = len(input_bytes) // data_bytes
     group_size = config.sync_every_blocks
     repeats = config.block_repeats
@@ -220,7 +217,7 @@ def decode(samples: np.ndarray, config: ModemConfig, *, streaming: bool = False)
         _log.debug("demodulator returned no symbols; sample count below one symbol")
         return (b"", 0) if streaming else b""
 
-    preamble = preamble_symbols()
+    preamble = PREAMBLE_SYMBOLS
     peaks = _find_preamble_peaks(coarse_magnitudes, preamble, config)
     _log.debug("preamble peaks found: %d at symbol offsets %s", len(peaks), peaks[:8])
     if not peaks:
