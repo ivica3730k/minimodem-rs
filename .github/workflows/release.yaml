@@ -87,13 +87,17 @@ jobs:
             --collect-all soundfile \
             weaklink/modem/cli.py
 
-      - name: Make static binary
-        run: staticx dist/weaklink-9a3ice dist/weaklink-9a3ice-linux-x86_64
+      - name: Make static binary (versioned + -latest aliases)
+        run: |
+          staticx dist/weaklink-9a3ice dist/weaklink-9a3ice-linux-x86_64-v${{ steps.ver.outputs.version }}
+          cp dist/weaklink-9a3ice-linux-x86_64-v${{ steps.ver.outputs.version }} dist/weaklink-9a3ice-linux-x86_64-latest
 
       - name: Upload to release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/weaklink-9a3ice-linux-x86_64
+          files: |
+            dist/weaklink-9a3ice-linux-x86_64-v${{ steps.ver.outputs.version }}
+            dist/weaklink-9a3ice-linux-x86_64-latest
 
   build-deb:
     name: Build Ubuntu .deb
@@ -158,7 +162,12 @@ jobs:
             -C pkgroot \
             usr
 
+      - name: Alias .deb with -latest suffix
+        run: cp weaklink-9a3ice_${{ steps.ver.outputs.version }}_amd64.deb weaklink-9a3ice_amd64-latest.deb
+
       - name: Upload to release
         uses: softprops/action-gh-release@v2
         with:
-          files: "*.deb"
+          files: |
+            weaklink-9a3ice_${{ steps.ver.outputs.version }}_amd64.deb
+            weaklink-9a3ice_amd64-latest.deb

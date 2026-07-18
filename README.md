@@ -7,19 +7,40 @@ protocol on top (or don't).
 
 Distribution: `weaklink-9a3ice`.
 
+## Install
+
+**Grab the portable Linux binary** (recommended — no Python, no venv):
+
+```bash
+sudo apt install libportaudio2 libsndfile1        # runtime shared libs
+curl -L -O https://github.com/ivica3730k/weaklink-9a3ice/releases/latest/download/weaklink-9a3ice-linux-x86_64-latest
+chmod +x weaklink-9a3ice-linux-x86_64-latest
+./weaklink-9a3ice-linux-x86_64-latest --version
+```
+
+The `-latest` suffix is a stable filename that CI overwrites on every
+release, so the URL above never rots. If you want to pin a specific
+version, grab `weaklink-9a3ice-linux-x86_64-vX.Y.Z` from that release.
+
+**Or install the `.deb`** on Debian / Ubuntu (puts `weaklink-9a3ice` on `PATH`):
+
+```bash
+curl -L -O https://github.com/ivica3730k/weaklink-9a3ice/releases/latest/download/weaklink-9a3ice_amd64-latest.deb
+sudo dpkg -i weaklink-9a3ice_amd64-latest.deb
+weaklink-9a3ice --version
+```
+
 ## 30-second quickstart
 
 ```bash
-poetry install
-
 # encode a message to a WAV file, then decode it back
-echo -n "hello weaklink" | poetry run weaklink-9a3ice tx --modem-wav /tmp/hello.wav
-poetry run weaklink-9a3ice rx --modem-wav /tmp/hello.wav
+echo -n "hello weaklink" | ./weaklink-9a3ice-linux-x86_64-latest tx --modem-wav /tmp/hello.wav
+./weaklink-9a3ice-linux-x86_64-latest rx --modem-wav /tmp/hello.wav
 # → hello weaklink
 
 # live: play through speakers, record on the mic
-poetry run weaklink-9a3ice rx > out.txt &      # start listening
-echo -n "over the room" | poetry run weaklink-9a3ice tx
+./weaklink-9a3ice-linux-x86_64-latest rx > out.txt &      # start listening
+echo -n "over the room" | ./weaklink-9a3ice-linux-x86_64-latest tx
 # Ctrl-C the rx after the tones stop
 ```
 
@@ -30,21 +51,22 @@ has to agree.
 
 **Fast, clean channels** (default, 300 baud):
 ```bash
-weaklink-9a3ice tx | weaklink-9a3ice rx      # ~1 kbps, cliff ≈ −3 dB SNR (3 kHz ref)
+./weaklink-9a3ice-linux-x86_64-latest tx | ./weaklink-9a3ice-linux-x86_64-latest rx
+# ~1 kbps, cliff ≈ −3 dB SNR (3 kHz ref)
 ```
 
 **Moderate noise, ~100-byte messages** (100 baud + block repetition):
 ```bash
 FLAGS="--modem-baud 100 --modem-block-repeats 2"
-weaklink-9a3ice tx $FLAGS < msg.txt
-weaklink-9a3ice rx $FLAGS > received.txt
+./weaklink-9a3ice-linux-x86_64-latest tx $FLAGS < msg.txt
+./weaklink-9a3ice-linux-x86_64-latest rx $FLAGS > received.txt
 # ~30 s per 100 chars, cliff ≈ −10 dB SNR
 ```
 
 **Extreme noise, short messages only** (9 baud):
 ```bash
 FLAGS="--modem-baud 9 --modem-tone-spacing 30 --modem-block-repeats 2"
-weaklink-9a3ice tx $FLAGS < short_msg.txt
+./weaklink-9a3ice-linux-x86_64-latest tx $FLAGS < short_msg.txt
 # ~2 minutes for 20 chars, cliff ≈ −20 dB SNR in 3 kHz
 ```
 
@@ -54,16 +76,17 @@ Local WAV roundtrip works but mic-and-speaker doesn't decode? Add
 `--modem-debug` to the RX side:
 
 ```bash
-weaklink-9a3ice rx --modem-debug > out.txt
+./weaklink-9a3ice-linux-x86_64-latest rx --modem-debug > out.txt
 ```
 
-It prints, to stderr, on each decode:
+Diagnostics go to `log.txt` (not stdout — so piping stays clean). Look for:
 
-- Captured signal duration, peak level, RMS level (in dBFS)
-- Warning if input is very quiet (mic muted, wrong device, gain too low)
-- Detected coarse and per-group frequency offsets
-- Number of preamble peaks found and their positions
-- Blocks decoded vs attempted, per group
+- `audio: peak +X dBFS, rms +Y dBFS` — one per second while live rx runs.
+  Peak below −40 dBFS means mic is muted, wrong device, or gain too low.
+- `RS corrected ... byte-symbol(s)` — outer code saved a block.
+- `RS failed on ... block(s)` — a block was unrecoverable (data lost).
+- With `--modem-debug`: coarse and per-preamble frequency offsets,
+  preamble positions, block-decode counts per group.
 
 Common local-audio gotchas that this catches:
 
@@ -152,36 +175,16 @@ lower bound each config lands at. We're roughly 10–15 dB above Shannon
 everywhere — that's the K=7 Viterbi + non-coherent detection budget. Closing
 more of the gap would need LDPC or coherent detection.
 
-## Install
-
-**Preferred: portable Linux binary** — grab it from the latest release. No
-Python, no Poetry, no venv. Just a single executable:
-
-```bash
-# Debian / Ubuntu / any glibc-based Linux (x86_64):
-sudo apt install libportaudio2 libsndfile1     # runtime shared libs
-curl -L -o weaklink-9a3ice \
-  https://github.com/ivica3730k/weaklink-9a3ice/releases/latest/download/weaklink-9a3ice-linux-x86_64
-chmod +x weaklink-9a3ice
-./weaklink-9a3ice --version
-```
-
-**Or install the `.deb`** on Debian / Ubuntu:
-
-```bash
-curl -L -o weaklink-9a3ice.deb \
-  https://github.com/ivica3730k/weaklink-9a3ice/releases/latest/download/weaklink-9a3ice_*.deb
-sudo dpkg -i weaklink-9a3ice.deb
-weaklink-9a3ice --version
-```
-
-**From source (for macOS, Windows, or if you want to hack on it):**
+## From source (power users / macOS / hacking)
 
 ```bash
 poetry install
-sudo apt install libportaudio2 libsndfile1   # Debian/Ubuntu system libs
 poetry run weaklink-9a3ice --version
 ```
+
+Replace `./weaklink-9a3ice-linux-x86_64-latest` with `poetry run weaklink-9a3ice`
+in any command above. On Debian / Ubuntu also install the system libs first:
+`sudo apt install libportaudio2 libsndfile1`.
 
 ## CLI reference
 
