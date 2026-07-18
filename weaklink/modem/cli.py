@@ -224,20 +224,16 @@ def _run_rx(args: argparse.Namespace) -> int:
 
 def _live_stream_decode(config: ModemConfig, *, audio_input: str | None = None) -> int:
     import os
+    import time
 
     import numpy as np
 
-    from weaklink.modem.audio import _import_sounddevice, _resolve_device
+    from weaklink.modem.audio import LiveInputStream, resolve_audio_target
 
-    sd = _import_sounddevice()
     hint = audio_input if audio_input else os.environ.get("PULSE_SOURCE")
-    input_device = _resolve_device(sd, hint, kind="input")
+    target = resolve_audio_target(hint, kind="input")
     if hint:
-        if input_device is not None:
-            _log.debug("audio input hint %r -> device index %d (%s)",
-                       hint, input_device, sd.query_devices(input_device)["name"])
-        else:
-            _log.debug("audio input hint %r did not match; using PortAudio default", hint)
+        _log.debug("audio input hint %r -> %s", hint, target.describe())
     sample_rate = int(round(config.waveform.sample_rate))
 
     # Rolling audio buffer with a sample-cursor model. samples_before_buffer is
@@ -252,10 +248,10 @@ def _live_stream_decode(config: ModemConfig, *, audio_input: str | None = None) 
     # rx sessions, and bounds the per-poll decode cost.
     MAX_WINDOW_SAMPLES = 60 * sample_rate
 
-    def _callback(indata, _frames, _time, _status):
-        chunks.append(indata.copy())
+    def _callback(indata_1d: np.ndarray) -> None:
+        chunks.append(indata_1d)
 
-    _log.debug("live rx: recording from default input, polling every 100 ms")
+    _log.debug("live rx: polling every 100 ms, source %s", target.describe())
 
     def _total_buffered() -> int:
         return samples_before_buffer + sum(chunk.size for chunk in chunks)
@@ -330,15 +326,9 @@ def _live_stream_decode(config: ModemConfig, *, audio_input: str | None = None) 
     snapshot_every_polls = 10  # 1 s at 100 ms poll
     poll_counter = 0
     try:
-        with sd.InputStream(
-            samplerate=sample_rate,
-            channels=1,
-            dtype="float32",
-            device=input_device,
-            callback=_callback,
-        ):
+        with LiveInputStream(sample_rate=sample_rate, callback=_callback, target=target):
             while True:
-                sd.sleep(poll_ms)
+                time.sleep(poll_ms / 1000.0)
                 poll_counter += 1
                 _try_emit_from_buffer()
                 if poll_counter % snapshot_every_polls == 0:
