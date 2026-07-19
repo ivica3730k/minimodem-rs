@@ -17,6 +17,8 @@ from weaklink.modem.cli import main as modem_main
 from weaklink.modem.codec import ModemConfig, decode, encode
 from weaklink.modem.waveform import WaveformConfig
 
+from ._streaming import pump_decode
+
 
 def _strip_trailing_nul(data: bytes) -> bytes:
     return data.rstrip(b"\x00")
@@ -66,6 +68,27 @@ def test_wav_file_is_reloadable(tmp_path: Path) -> None:
     assert sample_rate == int(round(config.waveform.sample_rate))
     decoded = _strip_trailing_nul(decode(reloaded, config))
     assert decoded == payload
+
+
+# --- e2e streaming variants -------------------------------------------------
+
+
+def test_short_payload_clean_e2e_streaming() -> None:
+    """Same roundtrip as ``test_short_payload_clean_wav_roundtrip`` but
+    through ``_StreamingRxPump`` -- exercises the live-rx code path."""
+    config = ModemConfig()
+    message = b"weaklink modem streaming hello"
+    samples = encode(message, config)
+    assert _strip_trailing_nul(pump_decode(samples, config)) == message
+
+
+def test_random_100_bytes_clean_e2e_streaming() -> None:
+    config = ModemConfig()
+    alphabet = (string.ascii_letters + string.digits + string.punctuation + " ").encode("ascii")
+    rng = random.Random(7)
+    message = bytes(rng.choices(alphabet, k=100))
+    samples = encode(message, config)
+    assert _strip_trailing_nul(pump_decode(samples, config)) == message
 
 
 # --- SNR sweep --------------------------------------------------------------

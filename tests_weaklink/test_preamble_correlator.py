@@ -100,3 +100,43 @@ def test_decode_under_10db_slow_fading(baud: int) -> None:
     noise = rng.standard_normal(len(faded)).astype(np.float32) * np.sqrt(sig_p * 10 ** (-5 / 10))
     decoded = decode(faded + noise, config)
     assert payload in decoded, f"{baud} baud + 10 dB fade + 5 dB SNR: {decoded[:80]!r}"
+
+
+# --- e2e streaming variants -------------------------------------------------
+
+from ._streaming import pump_decode
+
+
+def test_edge_transient_before_signal_e2e_streaming(config: ModemConfig) -> None:
+    rng = np.random.default_rng(2)
+    real = encode(b"hello weaklink", config)
+    lead_len = int(0.3 * config.waveform.sample_rate)
+    lead = rng.standard_normal(lead_len).astype(np.float32) * 0.9
+    tail = np.zeros(int(0.5 * config.waveform.sample_rate), dtype=np.float32)
+    buffer = np.concatenate([lead, real, tail])
+    decoded = pump_decode(buffer, config)
+    assert b"hello weaklink" in decoded
+
+
+@pytest.mark.parametrize("baud", [45, 300])
+def test_decode_under_10db_slow_fading_e2e_streaming(baud: int) -> None:
+    presets = {
+        45:  dict(rs_data_bytes=32, rs_parity_bytes=8, block_repeats=4, sync_every_blocks=4),
+        300: dict(rs_data_bytes=16, rs_parity_bytes=8, block_repeats=2, sync_every_blocks=4),
+    }
+    config = ModemConfig(
+        waveform=WaveformConfig(baud=float(baud), tone_spacing_hz=float(baud)),
+        **presets[baud],
+    )
+    payload = b"weaklink fading test payload 12345678 abcdef"
+    signal = encode(payload, config)
+    duration = len(signal) / config.waveform.sample_rate
+    t = np.arange(len(signal)) / config.waveform.sample_rate
+    period = max(duration / 2.5, 1.0)
+    envelope = 0.316 + 0.684 * (0.5 + 0.5 * np.cos(2 * np.pi * t / period))
+    faded = (signal * envelope).astype(np.float32)
+    rng = np.random.default_rng(0)
+    sig_p = float(np.mean(faded.astype(np.float64) ** 2))
+    noise = rng.standard_normal(len(faded)).astype(np.float32) * np.sqrt(sig_p * 10 ** (-5 / 10))
+    decoded = pump_decode(faded + noise, config)
+    assert payload in decoded, f"{baud} baud + 10 dB fade + 5 dB SNR (streaming): {decoded[:80]!r}"

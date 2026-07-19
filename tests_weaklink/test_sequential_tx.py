@@ -23,6 +23,8 @@ from weaklink.modem.codec import ModemConfig, decode, encode
 from weaklink.modem.waveform import WaveformConfig
 from tests_weaklink.test_wav_damage import _live_tx_buffer
 
+from ._streaming import pump_decode
+
 
 def _config_for(baud: int) -> ModemConfig:
     preset = BAUD_PRESETS[float(baud)]
@@ -56,5 +58,30 @@ def test_10_sequential_tx_all_decode_in_order(baud: int) -> None:
     decoded = decode(combined, config)
     assert decoded == expected, (
         f"{baud} baud: expected {expected!r}, got {decoded!r}\n"
+        f"payloads were: {payloads}"
+    )
+
+
+@pytest.mark.parametrize("baud", [300, 1200])
+def test_10_sequential_tx_all_decode_in_order_e2e_streaming(baud: int) -> None:
+    """Same as above but pumped through ``_StreamingRxPump`` -- catches
+    streaming-only bugs like the cross-call block-dedup regression that
+    the batch test can't see. 45 baud omitted (too slow for CI)."""
+    config = _config_for(baud)
+    rng = random.Random(42 + baud)
+    alphabet = (string.ascii_letters + string.digits + " ").encode("ascii")
+
+    payloads = [
+        bytes(rng.choice(alphabet) for _ in range(rng.randint(1, 20)))
+        for _ in range(10)
+    ]
+    expected = b"".join(payloads)
+
+    audio_pieces = [_live_tx_buffer(baud, p)[0] for p in payloads]
+    combined = np.concatenate(audio_pieces).astype(np.float32)
+
+    decoded = pump_decode(combined, config)
+    assert decoded == expected, (
+        f"{baud} baud (streaming): expected {expected!r}, got {decoded!r}\n"
         f"payloads were: {payloads}"
     )

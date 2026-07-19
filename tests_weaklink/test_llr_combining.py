@@ -51,3 +51,22 @@ def test_combined_llrs_decode_below_single_copy_cliff(block_repeats: int) -> Non
         f"R={block_repeats}: expected {len(payload)} bytes, got {len(decoded)}; "
         f"first diff at byte {next((i for i, (a, b) in enumerate(zip(decoded, payload)) if a != b), 'n/a')}"
     )
+
+
+# --- e2e streaming variant --------------------------------------------------
+
+from ._streaming import pump_decode
+
+
+@pytest.mark.parametrize("block_repeats", [2, 4])
+def test_combined_llrs_decode_below_single_copy_cliff_e2e_streaming(
+    block_repeats: int,
+) -> None:
+    payload = np.random.default_rng(block_repeats).bytes(80)
+    config = _cfg(block_repeats)
+    audio = encode(payload, config)
+    noisy = _awgn(audio, snr_db=-4.0, seed=block_repeats * 101)
+    decoded = pump_decode(noisy, config)
+    assert decoded == payload, (
+        f"R={block_repeats} (streaming): expected {len(payload)} bytes, got {len(decoded)}"
+    )

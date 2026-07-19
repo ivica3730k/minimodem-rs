@@ -149,3 +149,30 @@ def test_decode_survives_wav_damage(baud: int, payload: bytes, damage: str, dama
         f"{baud} baud {len(payload)}-byte payload after {damage!r} damage "
         f"was not decoded; got {decoded[:80]!r}"
     )
+
+
+# --- e2e streaming variant --------------------------------------------------
+
+from ._streaming import pump_decode
+
+
+_STREAMING_CASES = [c for c in CASES if c[0] != 9]  # 9 baud is CI-hostile
+
+
+@pytest.mark.parametrize(
+    "baud, payload, damage, damage_fn",
+    _STREAMING_CASES,
+    ids=[f"{c[0]}baud_{len(c[1])}b_{c[2]}" for c in _STREAMING_CASES],
+)
+def test_decode_survives_wav_damage_e2e_streaming(
+    baud: int, payload: bytes, damage: str, damage_fn,
+) -> None:
+    """Same damage cases pumped through ``_StreamingRxPump`` -- exercises
+    the live-rx code path (chunk-by-chunk decode + cross-call state)."""
+    buf, config = _live_tx_buffer(baud, payload)
+    damaged = damage_fn(buf, config.waveform.sample_rate)
+    decoded = pump_decode(damaged, config) or b""
+    assert payload in decoded, (
+        f"{baud} baud {len(payload)}-byte payload after {damage!r} damage "
+        f"(streaming) was not decoded; got {decoded[:80]!r}"
+    )
