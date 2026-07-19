@@ -217,17 +217,39 @@ How far above the theoretical lower bound each config sits.
 
 ## How it works
 
-### Signal chain
+### TX signal chain
 
+```mermaid
+flowchart LR
+    A[stdin bytes] --> B[Chunk<br/>rs_data − 3 B<br/>per block]
+    B --> C[Frame<br/>len · idx · payload · pad]
+    C --> D[RS + CRC-32]
+    D --> E[Conv encode<br/>K=7, r=1/2]
+    E --> F[Per-block<br/>interleaver<br/>32-cycle PN]
+    F --> G[Bits → 4-FSK<br/>symbols]
+    G --> H[CPFSK<br/>modulator]
+    H --> I[+ preamble<br/>+ pilot]
+    I --> J[audio out]
 ```
-stdin ──▶ chunk into (rs_data − 3)-byte payloads ──▶ frame per block ──▶
-     RS(N,K) + CRC-32 ──▶ conv encode (K=7, r=1/2) ──▶ per-block interleave
-     ──▶ 4-FSK CPFSK ──▶ [pre][slot 0][pre][slot 1]...[pre] ──▶ audio
-                                                                    │
-                                                                    ▼
-stdout ◀── emit in block_index order ◀── strip zero-pad via length header
-       ◀── RS + CRC per slot ◀── soft Viterbi ◀── deinterleave
-       ◀── preamble correlator (per-slot sync) ◀── non-coherent demod ◀──
+
+### RX signal chain
+
+```mermaid
+flowchart LR
+    A[audio in] --> B[Non-coherent<br/>4-FSK demod]
+    B --> C[Coarse FFT<br/>LO offset]
+    C --> D[Preamble<br/>correlator]
+    D --> E[Peak detect<br/>+ non-max<br/>suppression]
+    E --> F[Per-preamble<br/>fine offset]
+    F --> G[Slot soft LLRs]
+    G --> H[Deinterleave<br/>seed brute-force]
+    H --> I[Soft Viterbi]
+    I --> J{RS + CRC<br/>ok?}
+    J -- yes --> K[Assemble<br/>by block_index]
+    J -- no --> L[Buffer LLRs;<br/>combine across<br/>R copies]
+    L --> I
+    K --> M[Strip zero-pad<br/>via length]
+    M --> N[stdout bytes]
 ```
 
 Every slot is bracketed by a preamble, so any single slot decodes
