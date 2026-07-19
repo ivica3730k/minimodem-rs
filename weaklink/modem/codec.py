@@ -1,16 +1,7 @@
-"""Streaming modem codec.
-
-Wire format::
-
-    [PREAMBLE] [slot] [PREAMBLE] [slot] ... [PREAMBLE] [slot] [PREAMBLE]
-
-Every slot carries one RS-encoded block. Data area is
-``[length][block_index][payload...][zero_pad]`` (1-byte length header
-strips trailing NUL; 1-byte index picks the output position and lets
-duplicate copies dedupe). Slot: RS(N,K)+CRC -> K=7 rate-1/2 conv ->
-interleave -> 4-FSK. Preamble between every slot (13% overhead) so any
-slot decodes standalone; message boundaries are inferred from
-non-block-length spans between adjacent preambles.
+"""Streaming modem codec. Wire format: ``[pre][slot][pre][slot]...[pre]``.
+Each slot = one RS-block wrapping ``[length][block_index][payload][pad]``,
+routed through RS+CRC → conv(K=7, r=1/2) → per-block interleave → 4-FSK.
+Message boundaries fall on non-block-length spans between preambles.
 """
 
 from __future__ import annotations
@@ -204,15 +195,10 @@ def _frame_block(chunk: bytes, block_index: int, payload_per_block: int) -> byte
 def encode_stream(
     byte_iter: "Iterable[bytes]", config: ModemConfig
 ) -> "Iterator[np.ndarray]":
-    """Generator: consume bytes from ``byte_iter``, yield float32 audio
-    chunks. Emits one audio chunk per slot (leading preamble + block,
-    repeated ``block_repeats`` times per block), then a trailing preamble
-    marker. block_index wraps at 65535; anything longer needs another
-    tx session.
-
-    Wire layout, per stream: ``[pre][slot 0][pre][slot 0]... x R
-    [pre][slot 1]...``. Copies of the same block are adjacent (we don't
-    know the total block count upfront), so RX dedupes by block_index.
+    """Generator: consume bytes, yield float32 audio one slot at a time,
+    then a trailing preamble. Copies of the same block are adjacent
+    (no future-lookahead needed); RX dedupes by block_index. Cap:
+    65535 slots per session (2-byte index).
     """
     codec = config.rs_codec()
     data_bytes = codec.config.data_bytes
@@ -275,19 +261,13 @@ def decode(
     streaming: bool = False,
     streaming_state: dict | None = None,
 ):
-    """Decode audio to bytes; undecodable blocks are dropped.
+    """Decode audio to bytes; undecodable blocks dropped.
 
-    Batch mode (``streaming=False``) returns ``bytes``. Streaming mode
-    returns ``(bytes, safe_cursor_samples)`` -- cursor is the last real
-    preamble; keep it and slice everything before for the next call.
-
-    Cross-call state (``streaming_state``): a mutable dict the caller
-    passes in and reuses across successive decode() calls in one live
-    session. Used to dedupe blocks whose copies straddle a poll
-    boundary -- with ``block_repeats > 1``, a block's copies can land in
-    two adjacent RX calls and both calls would otherwise emit it. Reset
-    the dict (or pass a fresh one) to start a new logical session.
-    Coarse offset then per-preamble fine offset. Logger: ``weaklink.decode``.
+    Batch mode returns ``bytes``. Streaming mode returns
+    ``(bytes, safe_cursor_samples)`` -- keep audio from the cursor
+    onward for the next call. ``streaming_state`` is a mutable dict
+    the caller reuses across polls; carries cross-call dedup and
+    the cached coarse LO offset. Logger: ``weaklink.decode``.
     """
     if len(samples) == 0:
         _log.debug("empty sample buffer; nothing to decode")
@@ -309,16 +289,9 @@ def decode(
     if rms_db < -60:
         _log.debug("rms level below -60 dBFS")
 
-    # 1. Global coarse offset (FFT-based, handles big LO drift). In
-    # streaming mode we cache the last estimate across calls -- LO
-    # drift is slow and the FFT is one of the more expensive stages.
-    # Per-preamble fine tracking still runs on every slot.
-    #
-    # Invariant: the cache is only trusted after a call that actually
-    # found preambles with it. First-call-on-silence would otherwise
-    # estimate an FFT peak from noise, cache the garbage, and stick
-    # to it forever once real signal arrives. If no peaks are found
-    # this call, invalidate the cache so the next one re-estimates.
+    # Coarse LO offset via FFT. Cached across streaming calls but
+    # only trusted after a call that found preambles -- otherwise a
+    # first-call-on-silence would cache a noise-floor peak and stick.
     coarse_offset = 0.0
     cached_offset = (
         streaming_state.get("coarse_offset_hz")
@@ -387,16 +360,10 @@ def decode(
             offset = coarse_offset
         per_peak_offsets.append(offset)
 
-    # 4. Every adjacent preamble pair brackets one slot = one RS block.
-    # A span of 0 between preambles is a message boundary (one tx's
-    # trailing preamble sitting right against the next tx's leading one)
-    # -- flush the assembled prefix and start a new message.
-    #
-    # For batch mode we also try to project a virtual leading preamble
-    # one slot's-worth before the first real one, and a virtual trailing
-    # one slot's-worth after the last real one. That recovers single-slot
-    # transmissions where the head or tail preamble was chopped off; the
-    # missing symbols get zero-padded and RS mops up.
+    # Adjacent preamble pair = one slot. Span 0 = message boundary
+    # (adjacent txs' trailing / leading preambles). Batch mode also
+    # projects a virtual leading / trailing preamble to recover head-
+    # or tail-chopped signals via zero-padding + RS.
     codec = config.rs_codec()
     block_length = _block_symbol_length(config)
     output = bytearray()
@@ -490,13 +457,10 @@ def decode(
         slot_end = peaks[slot_i + 1]
         span = slot_end - slot_start
         if abs(span - block_length) > 4:
-            # Not a valid slot span. Two cases:
-            # (a) peaks[slot_i + 1] is a spurious mid-message hit --
-            #     peaks[slot_i] and peaks[slot_i + 2] then sit at the
-            #     usual stride and we can decode across the spurious
-            #     peak by skipping it.
-            # (b) real message boundary (adjacent preambles / pilot
-            #     gap between separate tx sessions) -- flush + advance.
+            # Bad span: either a spurious mid-message hit (peaks[i+2]
+            # still at the expected stride from peaks[i]) or a real
+            # message boundary. First case: drop the spurious peak
+            # and retry. Second: flush + advance.
             spurious = False
             if slot_i + 2 < len(peaks):
                 two_step = peaks[slot_i + 2] - peaks[slot_i]
@@ -554,12 +518,9 @@ def decode(
                         expected_block_index = header_block_index
                     combining_buffer.clear()
             if not accepted and config.block_repeats > 1:
-                # Independent decode failed. Buffer the soft LLRs and, once
-                # we've got block_repeats copies, try summing their
-                # deinterleaved LLRs -- classical soft-combining. This is
-                # the diversity gain the per-copy permutation was designed
-                # for: two marginal copies together can clear what neither
-                # can on its own.
+                # Independent decode failed. Buffer soft LLRs; once we
+                # have block_repeats copies, sum their deinterleaved
+                # LLRs (classical soft-combining diversity).
                 combining_buffer.append(soft)
                 if len(combining_buffer) >= config.block_repeats:
                     dec, errs, seed = _decode_combined_copies(
