@@ -1,10 +1,7 @@
 # weaklink
 
-A streaming digital modem. Bytes in → audio out → bytes out.
-
-Streaming both ways: `tx` encodes stdin block-by-block and pipes audio as
-it's generated (works with `tail -f`); `rx` writes decoded bytes to stdout
-as blocks arrive.
+Streaming digital modem: bytes on stdin → audio → bytes on stdout. Works
+with `tail -f`; no memory buffering, no wait-for-EOF.
 
 ![alt text](image.png)
 
@@ -59,8 +56,8 @@ Both sides must use the same `--modem-baud` (no handshake).
 
 ## Presets
 
-Three baud rates. Every preset carries a 13 B payload per RS block
-(RS(16,8) + CRC-32), so message sizes below map identically across bauds.
+Three baud rates. Every preset carries 13 B of payload per RS block
+(RS(16,8) + CRC-32), so message sizes map identically across bauds.
 
 | Baud | CLI (both tx / rx) | 4-FSK tones (Hz) | Bandwidth | Default repeats | Measured best SNR | Min live tx (13 B payload) |
 |---:|---|---|---:|---:|---:|---:|
@@ -68,38 +65,23 @@ Three baud rates. Every preset carries a 13 B payload per RS block
 | 300 | `--modem-baud 300` | 1050 / 1350 / 1650 / 1950 | 900 Hz | 2× | ≈ −5 dB | 2.4 s |
 | 1200 | `--modem-baud 1200` | 500 / 1700 / 2900 / 4100 | 3600 Hz | 2× | ≈ +2 dB | 1.0 s |
 
-SNR numbers are measured with the benchmark's AWGN normalised to a 3 kHz
-reference band — a comparison convention across bauds, not a claim about
-what a physical 3 kHz filter would see (matters mainly for the 1200-baud
-row, whose signal is wider than 3 kHz).
-
-- **1200** — clean local audio, ~500 bit/s.
-- **300** — moderate noise, ~130 bit/s.
-- **45** — deep noise, willing to wait, ~10 bit/s.
+SNR is measured with AWGN normalised to a 3 kHz reference band — a
+cross-baud comparison convention, not a physical channel filter.
 
 Override `--modem-block-repeats N` on both sides for more copies. Each
-doubling buys ~2–3 dB more margin via soft-LLR combining, at
-proportionally longer transmission.
+doubling buys ~2–3 dB via soft-LLR combining, at proportional air time.
 
 ---
 
 ## Debugging live audio
 
-Add `--modem-debug` to rx:
+`weaklink-9a3ice rx --modem-debug > out.txt` writes diagnostics to
+`log.txt` (stdout stays clean for piping). Watch for:
 
-```bash
-weaklink-9a3ice rx --modem-debug > out.txt
-```
-
-Diagnostics go to `log.txt`. Watch for:
-
-- `audio: peak +X dBFS` — below −40 dBFS means wrong mic or gain too low.
+- `audio: peak +X dBFS` below −40 dBFS → wrong mic or gain too low.
 - `RS corrected` — outer code saved a block.
 - `N slot(s) failed CRC/RS` — unrecoverable, data lost.
-
-Common gotchas:
-- macOS built-in mic AGC / voice isolation butchers tones — disable it.
-- Sample-rate mismatch — force the input device to 48 kHz.
+- macOS mic AGC / voice-isolation destroys tones; disable in System Settings.
 
 ---
 
@@ -275,19 +257,6 @@ One RS block, data area (before conv + interleave + FSK):
 
 `block_idx` is 2 bytes → one tx session is bounded at 65 535 slots.
 
-### Highlights
-
-- Reed-Solomon (N,K) + CRC-32 outer / K=7 rate-1/2 convolutional inner + soft Viterbi.
-- Per-block pseudorandom bit interleaver (32-cycle) — beats bursts *and*
-  periodic noise like SMPS harmonics or mains hum.
-- Soft-LLR combining across `--modem-block-repeats` copies, each with a
-  distinct permutation — real diversity gain, not just retry-until-success.
-- Amplitude-normalised preamble correlator — fade-invariant.
-- Per-preamble fine frequency tracking; coarse ±500 Hz LO offset search.
-- Head/tail chop recovery via virtual preamble projection.
-- Cross-call block dedup so copies straddling two rx polls don't emit twice.
-- Live audio via PulseAudio / PipeWire (`paplay` / `parec`) or sounddevice.
-
 ---
 
 ## Testing
@@ -304,30 +273,24 @@ through the same `_StreamingRxPump` the CLI uses.
 
 ## Glossary
 
-- **Baud** — Symbols per second.
-- **4-FSK / CPFSK** — Modulation using four continuous-phase tones; each tone carries 2 bits.
-- **Preamble** — Known 32-symbol PN sequence bracketing every slot. RX uses it to lock timing, frequency, amplitude.
-- **Slot** — One wire unit: preamble + one RS-encoded block.
-- **Block** — Fixed-size RS-encoded chunk inside a slot.
-- **Reed-Solomon (RS)** — Outer FEC. RS(N,K): K data + parity → N wire bytes; corrects up to (N-K)/2 byte errors.
-- **CRC-32** — Checksum catching errors past RS correction.
-- **Convolutional code (K=7, r=1/2)** — Inner FEC; doubles bit rate, sharply improves resilience.
-- **Viterbi / soft bits / LLR** — Decoder for the convolutional code, driven by per-bit confidence values.
-- **Interleaver** — Shuffles bits so bursts become isolated errors.
-- **Per-block interleaver** — Shuffle changes every block (32-permutation cycle).
-- **Non-coherent demod** — Tone detection by energy alone; ~3 dB behind coherent.
-- **LO offset** — Local-oscillator frequency error (±500 Hz search range).
-- **SNR (dB)** — Signal-to-noise ratio in a 3 kHz reference bandwidth.
-- **Shannon limit** — Theoretical lowest SNR at which a data rate is achievable.
+- **4-FSK / CPFSK** — Four continuous-phase tones, 2 bits per tone.
+- **Preamble** — Fixed 32-symbol PN sequence bracketing every slot; RX locks timing / frequency / amplitude from it.
+- **Slot** — Preamble + one RS-encoded block.
+- **Block** — RS-encoded chunk carrying header + payload.
+- **RS(N,K)** — Reed-Solomon outer code. K data + parity → N wire bytes; corrects (N-K)/2 byte errors.
+- **CRC-32** — Catches errors past RS correction.
+- **Convolutional code (K=7, r=1/2) + soft Viterbi** — Inner FEC and its decoder, driven by per-bit LLRs.
+- **Interleaver** — Bit shuffle so bursts become isolated errors. Ours changes every block (32-permutation cycle).
+- **Non-coherent demod** — Tone detection by energy; ~3 dB behind coherent.
+- **LO offset** — Radio frequency error; we correct up to ±500 Hz.
 - **Pilot** — Short random 4-FSK burst before / after every live TX.
 
 ---
 
 ## Roadmap
 
-- **Coherent detection** — Costas-loop demod would buy ~3 dB. Big DSP lift.
-- **LDPC** — Would close ~2–4 dB of the Shannon gap. Needs a proper
-  girth-optimising construction.
+- **Coherent detection** — Costas-loop demod, ~3 dB gain. Big DSP lift.
+- **LDPC** — Closes ~2–4 dB of the Shannon gap. Needs a proper construction.
 
 ---
 
