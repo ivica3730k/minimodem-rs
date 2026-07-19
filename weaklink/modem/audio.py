@@ -1,10 +1,7 @@
-"""Audio I/O: WAV via soundfile; live via sounddevice/PortAudio or
-``paplay``/``parec`` subprocess when the target is a named Pulse endpoint
-(PortAudio's Pulse compat doesn't reliably honour PULSE_* / PIPEWIRE_NODE).
-
-Device hints resolved by :func:`resolve_audio_target`: integer index,
-sounddevice-name substring, Pulse sink/source name (via subprocess), or
-default. Deps loaded lazily so DSP-only tests don't need an audio server.
+"""Audio I/O. WAV via soundfile; live via sounddevice or ``paplay`` /
+``parec`` subprocess for named Pulse endpoints (PortAudio's Pulse compat
+ignores ``PULSE_*``). Device hints: integer index, name substring, or
+Pulse sink/source. Deps loaded lazily so DSP-only tests need no audio server.
 """
 
 from __future__ import annotations

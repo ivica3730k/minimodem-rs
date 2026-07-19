@@ -23,12 +23,9 @@ _UNIFORM_4_MEAN: float = sum(UNIFORM_4_OFFSETS) / len(UNIFORM_4_OFFSETS)
 class WaveformConfig:
     baud: float = 300.0
     sample_rate: float = 18_000.0
-    """Internal working rate. 18 kHz = 5 * LCM(45, 300, 1200), so
-    samples_per_symbol comes out integer at every preset (400 / 60 /
-    15) -- no rounding drift accumulating over long messages. Nyquist
-    9 kHz > 4.1 kHz max tone with ~4.4 samples per cycle at the top
-    tone. ~2.7x fewer samples than 48 kHz baseline for every DSP
-    stage."""
+    """Internal rate. 18 kHz = 5·LCM(45,300,1200) so samples_per_symbol
+    is integer at every preset -- no rounding drift. Nyquist 9 kHz
+    covers the 4.1 kHz top tone with ~4.4 samples per cycle."""
     center_hz: float = 1_500.0
     """Centre of the 4-tone stack in the audio passband."""
     tone_spacing_hz: float = 300.0
@@ -86,13 +83,8 @@ def symbols_to_bits(symbols: np.ndarray) -> bytes:
 
 
 def modulate(symbols: np.ndarray, config: WaveformConfig) -> np.ndarray:
-    """Continuous-phase FSK modulator. Returns float32 samples in [-A, A].
-
-    Fully vectorised: per-symbol angular velocity is looked up, cumulative
-    end-of-symbol phase is a cumsum, and the full sample matrix builds via
-    NumPy broadcasting. Zero Python loop over symbols; equivalent to the
-    old for-loop implementation to within float rounding.
-    """
+    """CPFSK modulator: float32 samples in [-A, A]. Vectorised via
+    cumulative-phase cumsum + broadcast; no Python loop over symbols."""
     samples_per_symbol = config.samples_per_symbol
     if len(symbols) == 0:
         return np.zeros(0, dtype=np.float32)
@@ -143,12 +135,10 @@ def estimate_coarse_frequency_offset(
     *,
     search_range_hz: float = 1500.0,
 ) -> float:
-    """FFT coarse-offset estimate via geometric-mean scoring on all 4 tones.
-
-    Sum-of-magnitudes would let one dominant peak (common for
-    zero-padded short payloads) drag the offset off; geometric mean
-    requires energy at every candidate slot. Each bin smoothed ±10 Hz
-    to absorb CPFSK spectral smearing. Step capped at 2 Hz.
+    """Coarse LO offset via FFT + geometric-mean scoring on the 4 tones.
+    Geometric mean forces energy at every tone slot (sum-of-magnitudes
+    lets one dominant peak drag the estimate). ±10 Hz bin smoothing
+    absorbs CPFSK spectral smear; step 2 Hz.
     """
     if len(samples) == 0:
         return 0.0
