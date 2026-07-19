@@ -262,8 +262,7 @@ One RS block, data area (before conv + interleave + FSK):
 ## Testing
 
 ```bash
-poetry run pytest -q            # unit + e2e streaming, ~2 min
-poetry run pytest -m slow       # optional SNR sweeps
+poetry run pytest -q            # ~2 min, full suite
 ```
 
 Every batch-decode test has an e2e-streaming companion that drives audio

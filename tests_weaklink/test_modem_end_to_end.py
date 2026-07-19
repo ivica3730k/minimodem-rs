@@ -126,7 +126,6 @@ def _sweep(snr_db: float, *, trials: int, config: ModemConfig, payload: bytes) -
     return SweepPoint(snr_db=snr_db, trials=trials, successes=successes, total_bytes=trials * len(payload))
 
 
-@pytest.mark.slow
 def test_snr_sweep_prints_baseline() -> None:
     trials = 10
     alphabet = (string.ascii_letters + string.digits + " ").encode("ascii")
