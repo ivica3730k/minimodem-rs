@@ -15,6 +15,7 @@ non-block-length spans between adjacent preambles.
 
 from __future__ import annotations
 
+import functools
 from dataclasses import dataclass, field
 from typing import Iterable, Iterator
 
@@ -39,6 +40,21 @@ from weaklink.modem.waveform import (
     soft_bits_from_magnitudes,
 )
 from weaklink.rs import BlockConfig, RSBlockCodec
+
+
+@functools.lru_cache(maxsize=32)
+def _cached_rs_codec(
+    data_bytes: int, parity_bytes: int, crc_enabled: bool,
+) -> RSBlockCodec:
+    """Building a ``reedsolo`` codec shows up in profiles at ~1 ms each,
+    and we build one per encode / decode / seed-search try. Cache them."""
+    return RSBlockCodec(
+        BlockConfig(
+            data_bytes=data_bytes,
+            parity_bytes=parity_bytes,
+            crc_enabled=crc_enabled,
+        )
+    )
 
 
 PREAMBLE_LENGTH_SYMBOLS: int = 32
@@ -93,12 +109,8 @@ class ModemConfig:
             raise ValueError("block_repeats must be >= 1")
 
     def rs_codec(self) -> RSBlockCodec:
-        return RSBlockCodec(
-            BlockConfig(
-                data_bytes=self.rs_data_bytes,
-                parity_bytes=self.rs_parity_bytes,
-                crc_enabled=self.rs_crc_enabled,
-            )
+        return _cached_rs_codec(
+            self.rs_data_bytes, self.rs_parity_bytes, self.rs_crc_enabled,
         )
 
     @property
@@ -297,14 +309,25 @@ def decode(
     if rms_db < -60:
         _log.debug("rms level below -60 dBFS")
 
-    # 1. Global coarse offset (FFT-based, handles big SSB LO drift).
+    # 1. Global coarse offset (FFT-based, handles big LO drift). In
+    # streaming mode we cache the last estimate across calls -- LO
+    # drift is slow and the FFT is one of the more expensive stages.
+    # Per-preamble fine tracking still runs on every slot.
     coarse_offset = 0.0
-    if config.coarse_frequency_search_hz > 0.0:
+    cached_offset = (
+        streaming_state.get("coarse_offset_hz")
+        if streaming and streaming_state is not None else None
+    )
+    if cached_offset is not None:
+        coarse_offset = float(cached_offset)
+    elif config.coarse_frequency_search_hz > 0.0:
         coarse_offset = estimate_coarse_frequency_offset(
             samples_float,
             config.waveform,
             search_range_hz=config.coarse_frequency_search_hz,
         )
+        if streaming and streaming_state is not None:
+            streaming_state["coarse_offset_hz"] = coarse_offset
     _log.debug("coarse frequency offset: %+.1f Hz", coarse_offset)
 
     # 2. Demodulate once with the coarse offset just to find preambles.
@@ -663,24 +686,25 @@ def _find_preamble_peaks(
     preamble_length = len(preamble)
     if magnitudes.shape[0] < preamble_length:
         return []
-    tone_indices = preamble.astype(np.int64)
-    positions = np.arange(preamble_length)
     max_offset = magnitudes.shape[0] - preamble_length
-    scores = np.empty(max_offset + 1, dtype=np.float64)
     # Rolling sum of per-symbol total energy across the preamble-length
     # window; used to amplitude-normalise the raw correlation score.
     total_per_symbol = magnitudes.sum(axis=1)
     windowed_total = np.convolve(total_per_symbol, np.ones(preamble_length), mode="valid")
-    assert windowed_total.size == max_offset + 1
-    for offset in range(max_offset + 1):
-        window = magnitudes[offset : offset + preamble_length]
-        wanted = window[positions, tone_indices]
-        others = (window.sum(axis=1) - wanted) / (NUM_TONES - 1)
-        raw = float(np.sum(wanted - others))
-        denom = float(windowed_total[offset])
-        # denom = 0 only on a genuinely silent window; anything else has
-        # non-trivial magnitudes even at very low SNR.
-        scores[offset] = raw / denom if denom > 1e-12 else 0.0
+    # Vectorised correlator: for each tone k, mask marks where the
+    # preamble expects that tone. Cross-correlate the tone's magnitude
+    # column with the mask; sum contributions across the four tones.
+    # ``wanted[offset]`` = Σ_i magnitudes[offset + i, preamble[i]].
+    wanted = np.zeros(max_offset + 1, dtype=np.float64)
+    preamble_int = preamble.astype(np.int64)
+    for tone in range(NUM_TONES):
+        mask = (preamble_int == tone).astype(np.float64)
+        if mask.any():
+            wanted += np.correlate(magnitudes[:, tone], mask, mode="valid")
+    # Old inner-loop math simplifies to: raw = (4*wanted - total) / 3.
+    raw = (NUM_TONES * wanted - windowed_total) / (NUM_TONES - 1)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        scores = np.where(windowed_total > 1e-12, raw / windowed_total, 0.0)
 
     if scores.size == 0:
         return []
