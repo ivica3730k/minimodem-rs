@@ -122,12 +122,12 @@ flags (there is no handshake, so config has to agree).
 Every preset carries a 13 B payload per RS block (RS(16,8) + CRC-32),
 so message sizes below map identically across bauds.
 
-| Baud | 4-FSK tones (Hz) | Total spread | Fits 2.7 kHz SSB? | Default repeats | Approx cliff (SNR in 3 kHz) | Min live tx (13 B payload) |
-|---:|---|---:|---|---:|---:|---:|
-| 9 | 1350 / 1450 / 1550 / 1650 | 300 Hz | ✓ | 8× | ≈ −20 dB | ~4.5 min |
-| 45 | 1200 / 1400 / 1600 / 1800 | 600 Hz | ✓ | 4× | ≈ −14 dB | 28 s |
-| 300 | 1050 / 1350 / 1650 / 1950 | 900 Hz | ✓ | 2× | ≈ −5 dB | 2.4 s |
-| 1200 | 500 / 1700 / 2900 / 4100 | 3600 Hz | ✗ (wideband only) | 2× | ≈ +2 dB | 1.0 s |
+| CLI (both tx / rx) | 4-FSK tones (Hz) | Total spread | Fits 2.7 kHz SSB? | Default repeats | Approx cliff (SNR in 3 kHz) | Min live tx (13 B payload) |
+|---|---|---:|---|---:|---:|---:|
+| `--modem-baud 9` | 1350 / 1450 / 1550 / 1650 | 300 Hz | ✓ | 8× | ≈ −20 dB | ~4.5 min |
+| `--modem-baud 45` | 1200 / 1400 / 1600 / 1800 | 600 Hz | ✓ | 4× | ≈ −14 dB | 28 s |
+| `--modem-baud 300` | 1050 / 1350 / 1650 / 1950 | 900 Hz | ✓ | 2× | ≈ −5 dB | 2.4 s |
+| `--modem-baud 1200` | 500 / 1700 / 2900 / 4100 | 3600 Hz | ✗ (wideband only) | 2× | ≈ +2 dB | 1.0 s |
 
 **Fast, clean channels** (default, 300 baud, ~1 kbps):
 ```bash
