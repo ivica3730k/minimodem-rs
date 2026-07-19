@@ -86,21 +86,29 @@ def symbols_to_bits(symbols: np.ndarray) -> bytes:
 
 
 def modulate(symbols: np.ndarray, config: WaveformConfig) -> np.ndarray:
-    """Continuous-phase FSK modulator. Returns float32 samples in [-A, A]."""
-    samples_per_symbol = config.samples_per_symbol
-    total_samples = len(symbols) * samples_per_symbol
-    signal = np.zeros(total_samples, dtype=np.float64)
+    """Continuous-phase FSK modulator. Returns float32 samples in [-A, A].
 
+    Fully vectorised: per-symbol angular velocity is looked up, cumulative
+    end-of-symbol phase is a cumsum, and the full sample matrix builds via
+    NumPy broadcasting. Zero Python loop over symbols; equivalent to the
+    old for-loop implementation to within float rounding.
+    """
+    samples_per_symbol = config.samples_per_symbol
+    if len(symbols) == 0:
+        return np.zeros(0, dtype=np.float32)
     dt = 1.0 / config.sample_rate
-    phase = 0.0
-    for index, symbol in enumerate(symbols):
-        freq = config.tones_hz[int(symbol)]
-        omega = 2.0 * np.pi * freq * dt
-        start = index * samples_per_symbol
-        phases = phase + omega * np.arange(1, samples_per_symbol + 1)
-        signal[start : start + samples_per_symbol] = np.sin(phases)
-        phase = phases[-1]
-    return (config.amplitude * signal).astype(np.float32)
+    omega = 2.0 * np.pi * np.asarray(config.tones_hz, dtype=np.float64)[
+        np.asarray(symbols, dtype=np.int64)
+    ] * dt
+    # Phase at the START of each symbol = 0 for i=0, cumsum(omega*sps) shifted for i>=1.
+    end_phases = np.cumsum(omega * samples_per_symbol)
+    start_phases = np.empty_like(end_phases)
+    start_phases[0] = 0.0
+    start_phases[1:] = end_phases[:-1]
+    # phases[i, n] = start_phases[i] + omega[i] * (n + 1), n = 0..sps-1.
+    n_offsets = np.arange(1, samples_per_symbol + 1, dtype=np.float64)
+    phases = start_phases[:, None] + omega[:, None] * n_offsets[None, :]
+    return (config.amplitude * np.sin(phases).ravel()).astype(np.float32)
 
 
 def demodulate_soft(samples: np.ndarray, config: WaveformConfig, *, frequency_offset_hz: float = 0.0) -> np.ndarray:
