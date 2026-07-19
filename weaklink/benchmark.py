@@ -173,8 +173,8 @@ def format_table(results: list[Result]) -> str:
         f"Streaming modem. Payload: {PAYLOAD_BYTES} random-ASCII bytes. Sync every "
         f"{SYNC_EVERY_FIXED} data blocks. Reference bandwidth: 3 kHz.",
         "",
-        "| Baud | Block layout (wire / data / parity, +4 B CRC) | Block repeats | Throughput | Info rate | Our cliff | Shannon | Gap |",
-        "|---:|---|---:|---|---:|---:|---:|---:|",
+        "| CLI (both tx / rx) | Block layout (wire / data / parity, +4 B CRC) | Throughput | Info rate | Our cliff | Shannon | Gap |",
+        "|---|---|---|---:|---:|---:|---:|",
     ]
     rows = []
     for r in results:
@@ -187,8 +187,14 @@ def format_table(results: list[Result]) -> str:
         throughput = f"{r.config.payload_bytes} chars in {r.duration_seconds:.1f} s"
         if r.config.note:
             throughput = f"{throughput}<br/><sub>{r.config.note}</sub>"
+        cli = (
+            f"`--modem-baud {r.config.baud} "
+            f"--modem-rs-data-bytes {r.config.rs_data} "
+            f"--modem-rs-parity-bytes {r.config.rs_parity} "
+            f"--modem-block-repeats {r.config.block_repeats}`"
+        )
         rows.append(
-            f"| {r.config.baud} | {r.config.rs_label()} | {r.config.block_repeats}&times; | "
+            f"| {cli} | {r.config.rs_label()} | "
             f"{throughput} | {r.info_rate_bit_per_s:.1f} bit/s | {cliff_text} | "
             f"{r.shannon_snr_db:+.1f} dB | {gap_text} |"
         )
