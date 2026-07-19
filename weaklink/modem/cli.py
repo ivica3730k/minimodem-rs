@@ -26,7 +26,7 @@ _log = logging.getLogger("weaklink.cli")
 # tones spread across enough Hz to survive room modes and mic roll-off.
 # Only these bauds are supported; anything else raises NotImplementedError.
 BAUD_PRESETS: dict[float, dict[str, float]] = {
-    9.0:    dict(tone_spacing_hz=100.0, rs_data_bytes=16, rs_parity_bytes=8,  block_repeats=2, sync_every_blocks=4),
+    9.0:    dict(tone_spacing_hz=100.0, rs_data_bytes=16, rs_parity_bytes=8,  block_repeats=8, sync_every_blocks=4),
     45.0:   dict(tone_spacing_hz=200.0, rs_data_bytes=32, rs_parity_bytes=8,  block_repeats=4, sync_every_blocks=4),
     300.0:  dict(tone_spacing_hz=300.0, rs_data_bytes=16, rs_parity_bytes=8,  block_repeats=2, sync_every_blocks=4),
     1200.0: dict(tone_spacing_hz=1200.0, rs_data_bytes=16, rs_parity_bytes=8, block_repeats=2, sync_every_blocks=4),

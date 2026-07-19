@@ -121,7 +121,7 @@ flags (there is no handshake, so config has to agree).
 
 | Baud | 4-FSK tones (Hz) | Total spread | Fits 2.7 kHz SSB? | Default repeats | Approx cliff (SNR in 3 kHz) |
 |---:|---|---:|---|---:|---:|
-| 9 | 1350 / 1450 / 1550 / 1650 | 300 Hz | ✓ | 2× | ≈ 0 dB (see roadmap) |
+| 9 | 1350 / 1450 / 1550 / 1650 | 300 Hz | ✓ | 8× | ≈ −20 dB |
 | 45 | 1200 / 1400 / 1600 / 1800 | 600 Hz | ✓ | 4× | ≈ −14 dB |
 | 300 | 1050 / 1350 / 1650 / 1950 | 900 Hz | ✓ | 2× | ≈ −5 dB |
 | 1200 | 500 / 1700 / 2900 / 4100 | 3600 Hz | ✗ (wideband only) | 2× | ≈ +2 dB |
@@ -349,12 +349,6 @@ CI runs the full suite (including the slow SNR sweeps) on every push.
 
 ## Roadmap / known limits
 
-- **9 baud plateaus at ~0 dB SNR.** In theory a 4× baud drop should
-  buy ~6 dB; in practice we hit a floor where the 32-symbol preamble
-  window (~3.5 s) is long enough that clock/LO drift smears tone
-  energy across bins. Fixing needs pilot-aided phase tracking or
-  coherent detection, not just "slow the baud down." At 45+ baud the
-  drift window is short enough that this doesn't bite.
 - **Non-coherent detection only.** Coherent Costas-loop demod would
   buy another ~3 dB across the board. Big DSP lift.
 - **No LDPC.** Would close ~2–4 dB of the Shannon gap. Was drafted
