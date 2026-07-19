@@ -185,6 +185,7 @@ How far above the theoretical lower bound each config sits.
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--modem-baud N` | `300` | Symbol rate. Only `45`, `300`, `1200` supported. |
+| `--modem-num-tones M` | `4` | M-FSK order: 2 / 4 / 8 / 16 / 32. Higher packs more bits per symbol at wider bandwidth and worse cliff. 2 halves throughput but fits narrow audio paths (e.g. FM voice via SignaLink). TX and RX must match. |
 | `--modem-rs-data-bytes N` | preset | Reed-Solomon data bytes per block. |
 | `--modem-rs-parity-bytes N` | preset | RS parity bytes. Corrects up to N/2 byte errors per block. |
 | `--modem-no-rs-crc` | CRC on | Skip the CRC-32 inside each RS block. |
