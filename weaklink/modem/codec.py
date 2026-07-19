@@ -313,11 +313,18 @@ def decode(
     # streaming mode we cache the last estimate across calls -- LO
     # drift is slow and the FFT is one of the more expensive stages.
     # Per-preamble fine tracking still runs on every slot.
+    #
+    # Invariant: the cache is only trusted after a call that actually
+    # found preambles with it. First-call-on-silence would otherwise
+    # estimate an FFT peak from noise, cache the garbage, and stick
+    # to it forever once real signal arrives. If no peaks are found
+    # this call, invalidate the cache so the next one re-estimates.
     coarse_offset = 0.0
     cached_offset = (
         streaming_state.get("coarse_offset_hz")
         if streaming and streaming_state is not None else None
     )
+    fresh_estimate = False
     if cached_offset is not None:
         coarse_offset = float(cached_offset)
     elif config.coarse_frequency_search_hz > 0.0:
@@ -326,8 +333,7 @@ def decode(
             config.waveform,
             search_range_hz=config.coarse_frequency_search_hz,
         )
-        if streaming and streaming_state is not None:
-            streaming_state["coarse_offset_hz"] = coarse_offset
+        fresh_estimate = True
     _log.debug("coarse frequency offset: %+.1f Hz", coarse_offset)
 
     # 2. Demodulate once with the coarse offset just to find preambles.
@@ -341,7 +347,15 @@ def decode(
     _log.debug("preamble peaks found: %d at symbol offsets %s", len(peaks), peaks[:8])
     if not peaks:
         _log.debug("no preambles above threshold")
+        # Coarse-offset cache stays unproven: drop it so the next call
+        # re-runs the FFT against fresher audio.
+        if streaming and streaming_state is not None:
+            streaming_state.pop("coarse_offset_hz", None)
         return (b"", 0) if streaming else b""
+    # Peaks found: the offset estimate is proven. Cache it if fresh so
+    # subsequent calls skip the FFT.
+    if fresh_estimate and streaming and streaming_state is not None:
+        streaming_state["coarse_offset_hz"] = coarse_offset
     if streaming and len(peaks) < 2:
         # Need two preambles to bracket a slot. Keep the one we have as
         # anchor; stale if it's been sitting past two block durations.
