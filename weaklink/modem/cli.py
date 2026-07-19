@@ -42,7 +42,6 @@ def _add_modem_args(sub: argparse.ArgumentParser) -> None:
     modem = sub.add_argument_group("modem", "modem-layer configuration + sample-side I/O")
     modem.add_argument("--modem-baud", type=float, default=300.0, dest="modem_baud",
                        help=f"Symbol rate. Supported values: {sorted(BAUD_PRESETS.keys())}.")
-    modem.add_argument("--modem-sample-rate", type=float, default=48_000.0, dest="modem_sample_rate")
     modem.add_argument(
         "--modem-rs-data-bytes",
         type=int,
@@ -161,7 +160,6 @@ def _make_config(args: argparse.Namespace) -> ModemConfig:
     return ModemConfig(
         waveform=WaveformConfig(
             baud=args.modem_baud,
-            sample_rate=args.modem_sample_rate,
             tone_spacing_hz=preset["tone_spacing_hz"],
         ),
         rs_data_bytes=rs_data_bytes,

@@ -130,7 +130,6 @@ benchmark. Preset rows above are the ones the CLI defaults to.*
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--modem-baud N` | `300` | Symbol rate. Only `45`, `300`, `1200` supported. |
-| `--modem-sample-rate HZ` | `48000` | Audio sample rate; match your soundcard. |
 | `--modem-rs-data-bytes N` | preset | Reed-Solomon data bytes per block. |
 | `--modem-rs-parity-bytes N` | preset | RS parity bytes. Corrects up to N/2 byte errors per block. |
 | `--modem-no-rs-crc` | CRC on | Skip the CRC-32 inside each RS block. |
