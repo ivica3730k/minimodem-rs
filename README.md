@@ -122,7 +122,7 @@ flags (there is no handshake, so config has to agree).
 | Baud | 4-FSK tones (Hz) | Total spread | Fits 2.7 kHz SSB? | Default repeats | Approx cliff (SNR in 3 kHz) |
 |---:|---|---:|---|---:|---:|
 | 9 | 1350 / 1450 / 1550 / 1650 | 300 Hz | ✓ | 8× | ≈ −20 dB |
-| 45 | 1200 / 1400 / 1600 / 1800 | 600 Hz | ✓ | 4× | ≈ −14 dB |
+| 45 | 1200 / 1400 / 1600 / 1800 | 600 Hz | ✓ | 2× | ≈ −14 dB |
 | 300 | 1050 / 1350 / 1650 / 1950 | 900 Hz | ✓ | 2× | ≈ −5 dB |
 | 1200 | 500 / 1700 / 2900 / 4100 | 3600 Hz | ✗ (wideband only) | 2× | ≈ +2 dB |
 
