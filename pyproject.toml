@@ -1,9 +1,9 @@
 [tool.poetry]
-name = "weaklink-9a3ice"
+name = "weaklink-modem"
 version = "0.0.0"
-description = "4-FSK streaming modem for HF SSB and wider channels: Reed-Solomon framing, soft Viterbi, round-robin block repetition, byte-pipe semantics."
+description = "M-FSK streaming modem for HF SSB and wider channels: Reed-Solomon framing, soft Viterbi, round-robin block repetition, byte-pipe semantics."
 authors = ["Ivica"]
-packages = [{ include = "weaklink" }]
+packages = [{ include = "weaklink/modem" }]
 
 [tool.poetry.dependencies]
 python = "^3.10"
@@ -23,8 +23,8 @@ setuptools = "82.0.1"
 pytest-xdist = "^3.8.0"
 
 [tool.poetry.scripts]
-weaklink-9a3ice = "weaklink.modem.cli:main"
-weaklink-benchmark = "weaklink.benchmark:main"
+weaklink-modem = "weaklink.modem.cli:main"
+weaklink-modem-benchmark = "weaklink.modem.benchmark:main"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]

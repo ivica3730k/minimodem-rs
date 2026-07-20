@@ -133,14 +133,14 @@ def _resolve_version() -> str:
     try:
         from importlib.metadata import version as _pkg_version
 
-        return _pkg_version("weaklink-9a3ice")
+        return _pkg_version("weaklink-modem")
     except Exception:
         return "unknown"
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="weaklink-9a3ice", description="Streaming 4-FSK modem.")
-    parser.add_argument("--version", action="version", version=f"weaklink-9a3ice {_resolve_version()}")
+    parser = argparse.ArgumentParser(prog="weaklink-modem", description="Streaming N-FSK modem.")
+    parser.add_argument("--version", action="version", version=f"weaklink-modem {_resolve_version()}")
     subparsers = parser.add_subparsers(dest="direction", required=True)
     tx_parser = subparsers.add_parser("tx", help="Encode stdin bytes and transmit (or write to WAV).")
     _add_modem_args(tx_parser)
@@ -570,7 +570,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
     _configure_logging(args.modem_log_file, args.modem_debug)
-    _log.debug("weaklink-9a3ice %s starting", args.direction)
+    _log.debug("weaklink-modem %s starting", args.direction)
     try:
         if args.direction == "tx":
             return _run_tx(args)

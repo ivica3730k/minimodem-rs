@@ -1,1 +1,1 @@
-"""Weak-signal FSK framing (PN sync + RS + block repetition) over a swappable bit transport."""
+__path__ = __import__("pkgutil").extend_path(__path__, __name__)

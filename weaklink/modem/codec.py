@@ -30,7 +30,7 @@ from weaklink.modem.waveform import (
     modulate,
     soft_bits_from_magnitudes,
 )
-from weaklink.rs import BlockConfig, RSBlockCodec
+from weaklink.modem.rs import BlockConfig, RSBlockCodec
 
 
 @functools.lru_cache(maxsize=32)

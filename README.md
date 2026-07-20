@@ -5,7 +5,7 @@ with `tail -f`; no memory buffering, no wait-for-EOF.
 
 ![alt text](image.png)
 
-Distribution: `weaklink-9a3ice`.
+Distribution: `weaklink-modem` (PyPI + release binaries).
 
 ---
 
@@ -15,22 +15,28 @@ Portable Linux binary:
 
 ```bash
 sudo apt install libportaudio2 libsndfile1
-curl -L -O https://github.com/ivica3730k/weaklink-9a3ice/releases/latest/download/weaklink-9a3ice-linux-x86_64-latest
-chmod +x weaklink-9a3ice-linux-x86_64-latest
+curl -L -O https://github.com/ivica3730k/weaklink-9a3ice/releases/latest/download/weaklink-modem-linux-x86_64-latest
+chmod +x weaklink-modem-linux-x86_64-latest
 ```
 
 Debian / Ubuntu `.deb`:
 
 ```bash
-curl -L -O https://github.com/ivica3730k/weaklink-9a3ice/releases/latest/download/weaklink-9a3ice_amd64-latest.deb
-sudo dpkg -i weaklink-9a3ice_amd64-latest.deb
+curl -L -O https://github.com/ivica3730k/weaklink-9a3ice/releases/latest/download/weaklink-modem_amd64-latest.deb
+sudo dpkg -i weaklink-modem_amd64-latest.deb
 ```
 
 From source:
 
 ```bash
 poetry install
-poetry run weaklink-9a3ice --version
+poetry run weaklink-modem --version
+```
+
+PyPI:
+
+```bash
+pip install weaklink-modem
 ```
 
 ---
@@ -39,15 +45,15 @@ poetry run weaklink-9a3ice --version
 
 ```bash
 # WAV roundtrip
-echo -n "hello weaklink" | weaklink-9a3ice tx --modem-wav /tmp/hello.wav
-weaklink-9a3ice rx --modem-wav /tmp/hello.wav
+echo -n "hello weaklink" | weaklink-modem tx --modem-wav /tmp/hello.wav
+weaklink-modem rx --modem-wav /tmp/hello.wav
 
 # Live speaker → mic
-weaklink-9a3ice rx > out.txt &
-echo -n "over the room" | weaklink-9a3ice tx
+weaklink-modem rx > out.txt &
+echo -n "over the room" | weaklink-modem tx
 
 # Long-lived stream
-tail -f /var/log/syslog | weaklink-9a3ice tx --modem-baud 300
+tail -f /var/log/syslog | weaklink-modem tx --modem-baud 300
 ```
 
 Both sides must use the same `--modem-baud` (no handshake).
@@ -75,7 +81,7 @@ doubling buys ~2–3 dB via soft-LLR combining, at proportional air time.
 
 ## Debugging live audio
 
-`weaklink-9a3ice rx --modem-debug > out.txt` writes diagnostics to
+`weaklink-modem rx --modem-debug > out.txt` writes diagnostics to
 `log.txt` (stdout stays clean for piping). Watch for:
 
 - `audio: peak +X dBFS` below −40 dBFS → wrong mic or gain too low.
@@ -88,7 +94,7 @@ doubling buys ~2–3 dB via soft-LLR combining, at proportional air time.
 ## Full SNR sweep
 
 Every baud × num_tones × RS × repeats combo is measured in
-[`results.md`](results.md). Re-run `poetry run weaklink-benchmark` to
+[`results.md`](results.md). Re-run `poetry run weaklink-modem-benchmark` to
 refresh.
 
 ---
@@ -98,7 +104,7 @@ refresh.
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--modem-baud N` | `300` | Symbol rate. Only `45`, `300`, `1200` supported. |
-| `--modem-num-tones M` | `4` | M-FSK order: 2 / 4 / 8 / 16 / 32. Higher packs more bits per symbol at wider bandwidth and worse cliff. 2 halves throughput but fits narrow audio paths (e.g. FM voice via SignaLink). TX and RX must match. |
+| `--modem-num-tones N` | `4` | N-FSK order: 2 / 4 / 8 / 16. Higher packs more bits per symbol at wider bandwidth and worse cliff. 2 halves throughput but fits narrow audio paths (e.g. FM voice via SignaLink). TX and RX must match. |
 | `--modem-rs-data-bytes N` | preset | Reed-Solomon data bytes per block. |
 | `--modem-rs-parity-bytes N` | preset | RS parity bytes. Corrects up to N/2 byte errors per block. |
 | `--modem-no-rs-crc` | CRC on | Skip the CRC-32 inside each RS block. |
