@@ -716,10 +716,27 @@ def _find_preamble_peaks(
     noise_mad = float(np.median(np.abs(noise_pool - noise_centre)))
     noise_sigma = max(2.0 * 1.4826 * noise_mad, 1e-9)
 
+    # Peak-vs-noise gate.
     if peak_score < noise_centre + 6.0 * noise_sigma:
         return []
 
-    candidate_threshold = noise_centre + 5.0 * noise_sigma
+    # Candidate threshold: sigma-based floor plus a peak-relative floor
+    # scaled to the tone count. For low-M (especially 2-FSK), partial
+    # preamble matches against random-looking block content score up to
+    # ~0.6 of a full match -- not from Gaussian noise but from the
+    # pattern-vs-data correlation. At high SNR the sigma-only threshold
+    # collapses toward zero and those sidelobes slip through, producing
+    # spurious mid-message peaks that confuse the boundary detector.
+    # Real preambles score ~1.0 at any SNR (amplitude-normalised);
+    # partial-match sidelobes score < 1 - 2/M. Set the peak-relative
+    # floor above that ceiling: 1 - 1/M. For M=2 that's 0.5 -> use 0.8
+    # (we need to clear observed sidelobes at ~0.6); for M=4+ the
+    # sidelobes drop fast so 0.5 * peak keeps ample margin.
+    peak_relative = 0.8 if num_tones == 2 else 0.5
+    candidate_threshold = max(
+        noise_centre + 5.0 * noise_sigma,
+        peak_relative * peak_score,
+    )
 
     peaks: list[int] = []
     guard = preamble_length
