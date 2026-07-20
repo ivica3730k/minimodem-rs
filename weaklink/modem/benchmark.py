@@ -25,6 +25,7 @@ from pathlib import Path
 import numpy as np
 
 from weaklink.modem.codec import ModemConfig, decode, encode
+from weaklink.modem.exceptions import ConfigError
 from weaklink.modem.waveform import WaveformConfig
 
 REFERENCE_BANDWIDTH_HZ: float = 3_000.0
@@ -36,7 +37,7 @@ PAYLOAD_SEED: int = 0
 BAUDS: tuple[int, ...] = (45, 300, 1200)
 RS_CONFIGS: tuple[tuple[int, int], ...] = ((16, 8), (32, 8), (128, 32))
 BLOCK_REPEATS: tuple[int, ...] = (1, 2, 4, 8)
-NUM_TONES: tuple[int, ...] = (2, 4, 8, 16, 32)
+NUM_TONES: tuple[int, ...] = (2, 4, 8, 16)
 SYNC_EVERY_FIXED: int = 4
 
 
@@ -164,7 +165,7 @@ def _enumerate_configs() -> list[Config]:
                     # can't).
                     try:
                         cfg.build()
-                    except ValueError:
+                    except ConfigError:
                         continue
                     configs.append(cfg)
     return configs

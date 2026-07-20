@@ -1,9 +1,11 @@
+<!-- generated from README.md at tag main by scripts/build_pypi_readme.py; do not hand-edit -->
+
 # weaklink
 
 Streaming digital modem: bytes on stdin → audio → bytes on stdout. Works
 with `tail -f`; no memory buffering, no wait-for-EOF.
 
-![alt text](image.png)
+![alt text](https://github.com/ivica3730k/weaklink-9a3ice/raw/main/image.png)
 
 Distribution: `weaklink-modem` (PyPI + release binaries).
 
@@ -94,7 +96,7 @@ doubling buys ~2–3 dB via soft-LLR combining, at proportional air time.
 ## Full SNR sweep
 
 Every baud × num_tones × RS × repeats combo is measured in
-[`results.md`](results.md). Re-run `poetry run weaklink-modem-benchmark` to
+[`results.md`](https://github.com/ivica3730k/weaklink-9a3ice/blob/main/results.md). Re-run `poetry run weaklink-modem-benchmark` to
 refresh.
 
 ---

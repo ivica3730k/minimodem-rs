@@ -1,4 +1,4 @@
-"""Shared helper: drive audio through ``_StreamingRxPump`` in fixed-size
+"""Shared helper: drive audio through ``_StreamingRxDecoder`` in fixed-size
 chunks and return the decoded bytes.
 
 Every batch-mode ``decode(samples, config)`` test has a companion e2e
@@ -14,8 +14,8 @@ import io
 
 import numpy as np
 
-from weaklink.modem.cli import _StreamingRxPump
 from weaklink.modem.codec import ModemConfig
+from weaklink.modem.streaming import StreamingRxDecoder
 
 
 def pump_decode(
@@ -24,10 +24,10 @@ def pump_decode(
     *,
     chunk_seconds: float = 0.1,
 ) -> bytes:
-    """Push ``audio`` through ``_StreamingRxPump`` in ``chunk_seconds``-
+    """Push ``audio`` through ``_StreamingRxDecoder`` in ``chunk_seconds``-
     sized chunks, drain at end, return the decoded byte stream."""
     out = io.BytesIO()
-    pump = _StreamingRxPump(config, output=out)
+    pump = StreamingRxDecoder(config, output=out)
     audio32 = np.asarray(audio, dtype=np.float32)
     chunk_samples = max(1, int(chunk_seconds * config.waveform.sample_rate))
     for start in range(0, audio32.size, chunk_samples):

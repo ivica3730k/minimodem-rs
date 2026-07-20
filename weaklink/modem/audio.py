@@ -17,6 +17,8 @@ from typing import Any, Callable
 
 import numpy as np
 
+from weaklink.modem.exceptions import ConfigError
+
 _log = logging.getLogger("weaklink.audio")
 
 
@@ -54,7 +56,7 @@ def read_wav(path: Path | str, *, expected_sample_rate: float | None = None) -> 
     if data.ndim > 1:
         data = data.mean(axis=1).astype(np.float32)
     if expected_sample_rate is not None and int(round(expected_sample_rate)) != int(sample_rate):
-        raise ValueError(
+        raise ConfigError(
             f"WAV sample rate {sample_rate} Hz does not match expected {expected_sample_rate} Hz"
         )
     return data, int(sample_rate)
@@ -74,7 +76,7 @@ def read_wav_chunks(
 
     with soundfile.SoundFile(str(path)) as sf:
         if expected_sample_rate is not None and int(round(expected_sample_rate)) != sf.samplerate:
-            raise ValueError(
+            raise ConfigError(
                 f"WAV sample rate {sf.samplerate} Hz does not match expected {expected_sample_rate} Hz"
             )
         chunk_frames = max(1, int(chunk_seconds * sf.samplerate))
@@ -102,6 +104,43 @@ class AudioTarget:
         return "default"
 
 
+def _pactl_lookup_id(id_str: str, *, kind: str) -> str | None:
+    """Resolve a numeric Pulse sink/source index to its name via ``pactl
+    list short``. Returns None if pactl is missing, fails, or has no
+    matching row."""
+    if not shutil.which("pactl"):
+        return None
+    subcmd = "sources" if kind == "input" else "sinks"
+    try:
+        proc = subprocess.run(
+            ["pactl", "list", "short", subcmd],
+            capture_output=True, text=True, check=True, timeout=5.0,
+        )
+    except (subprocess.SubprocessError, OSError) as exc:
+        _log.warning("pactl %s failed for id %s: %s", subcmd, id_str, exc)
+        return None
+    for line in proc.stdout.splitlines():
+        fields = line.split("\t")
+        if len(fields) >= 2 and fields[0] == id_str:
+            return fields[1]
+    return None
+
+
+def _resolve_pulse(ref: str, *, kind: str) -> AudioTarget:
+    """Handle explicit ``pulse:<x>`` where ``<x>`` is either a Pulse
+    sink/source name or a numeric index. Missing pactl / no matching
+    row for a numeric ref -> pass raw. Non-numeric ref -> pass raw."""
+    if not ref:
+        return AudioTarget()
+    if ref.lstrip("-").isdigit():
+        resolved = _pactl_lookup_id(ref, kind=kind)
+        if resolved is not None:
+            _log.debug("pulse:%s -> %s (via pactl)", ref, resolved)
+            return AudioTarget(pulse_name=resolved)
+        _log.warning("no Pulse endpoint at index %s; passing raw", ref)
+    return AudioTarget(pulse_name=ref)
+
+
 def resolve_audio_target(name_hint: str | None, *, kind: str) -> AudioTarget:
     """Turn a user-supplied device hint into a concrete backend target.
 
@@ -111,8 +150,22 @@ def resolve_audio_target(name_hint: str | None, *, kind: str) -> AudioTarget:
     if not name_hint:
         return AudioTarget()
 
-    # Permutation 1: bare integer -> raw sounddevice index (skip Pulse path).
+    # Permutation 0: ``pulse:<id>`` or ``pulse:<name>`` -- force Pulse path.
+    # Numeric IDs get resolved to a sink/source name via ``pactl list short``
+    # (paplay / parec don't reliably accept numeric IDs on pipewire-pulse).
+    if name_hint.startswith("pulse:"):
+        return _resolve_pulse(name_hint[len("pulse:") :], kind=kind)
+
+    # Permutation 1: bare integer. Try Pulse first (via pactl); if pactl
+    # is missing or has no such id, fall back to sounddevice index. Lets
+    # a user type '47' from `pactl list short sinks` on a Linux box
+    # without needing a prefix, while macOS/Windows (no pactl) keeps the
+    # sounddevice-index-by-int behavior.
     if name_hint.lstrip("-").isdigit():
+        resolved = _pactl_lookup_id(name_hint, kind=kind)
+        if resolved is not None:
+            _log.debug("hint %s -> pulse:%s (via pactl)", name_hint, resolved)
+            return AudioTarget(pulse_name=resolved)
         return AudioTarget(sd_index=int(name_hint))
 
     sd = _import_sounddevice()

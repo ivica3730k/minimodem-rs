@@ -7,8 +7,6 @@ import random
 import string
 from pathlib import Path
 
-import numpy as np
-
 from weaklink.modem.cli import main as modem_main
 from weaklink.modem.codec import ModemConfig, decode, encode
 from weaklink.modem.waveform import WaveformConfig

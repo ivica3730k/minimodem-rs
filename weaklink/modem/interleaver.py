@@ -24,7 +24,6 @@ from dataclasses import dataclass
 
 import numpy as np
 
-
 #: Base seed the per-block permutation is XOR'd with. Any fixed non-zero
 #: value works; shared between TX and RX so both derive the same shuffle.
 _INTERLEAVER_SEED_BASE: int = 0xC0DEC0DE

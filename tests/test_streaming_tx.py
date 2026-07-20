@@ -5,8 +5,6 @@ block_index limit."""
 
 from __future__ import annotations
 
-import io
-
 import numpy as np
 import pytest
 

@@ -1,5 +1,5 @@
 """Streaming rx must not emit the same block twice when its copies
-straddle a poll boundary. Uses ``_StreamingRxPump`` (the same class
+straddle a poll boundary. Uses ``_StreamingRxDecoder`` (the same class
 the CLI drives from both live audio and WAV) so the test exercises
 the exact code path.
 """
@@ -12,8 +12,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from weaklink.modem.cli import BAUD_PRESETS, _StreamingRxPump
+from weaklink.modem.api import BAUD_PRESETS
 from weaklink.modem.codec import ModemConfig, encode
+from weaklink.modem.streaming import StreamingRxDecoder as _StreamingRxDecoder
 from weaklink.modem.waveform import WaveformConfig
 
 
@@ -36,10 +37,10 @@ def _readme_head(n_lines: int) -> bytes:
 def _pump_chunked(
     audio: np.ndarray, config: ModemConfig, chunk_samples: int,
 ) -> bytes:
-    """Drive ``_StreamingRxPump`` with fixed-size audio chunks, exactly
+    """Drive ``_StreamingRxDecoder`` with fixed-size audio chunks, exactly
     like the CLI's live-rx callback or WAV chunk iterator do."""
     out = io.BytesIO()
-    pump = _StreamingRxPump(config, output=out)
+    pump = _StreamingRxDecoder(config, output=out)
     for start in range(0, audio.size, chunk_samples):
         pump.push(audio[start : start + chunk_samples].astype(np.float32))
     pump.drain()

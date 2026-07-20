@@ -6,10 +6,11 @@ from __future__ import annotations
 import pytest
 
 from weaklink.modem.codec import ModemConfig, decode, encode
+from weaklink.modem.exceptions import ConfigError
 from weaklink.modem.waveform import WaveformConfig
 
 
-@pytest.mark.parametrize("num_tones", [2, 4, 8, 16, 32])
+@pytest.mark.parametrize("num_tones", [2, 4, 8, 16])
 @pytest.mark.parametrize("baud", [45.0, 300.0, 1200.0])
 def test_mfsk_roundtrip(num_tones: int, baud: float) -> None:
     """Clean encode → decode roundtrip for every (baud, num_tones) combo
@@ -19,7 +20,7 @@ def test_mfsk_roundtrip(num_tones: int, baud: float) -> None:
         waveform = WaveformConfig(
             baud=baud, tone_spacing_hz=baud, num_tones=num_tones,
         )
-    except ValueError as e:
+    except (ValueError, ConfigError) as e:
         pytest.skip(str(e))
     config = ModemConfig(
         waveform=waveform,

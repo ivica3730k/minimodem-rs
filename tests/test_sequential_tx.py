@@ -18,10 +18,10 @@ import string
 import numpy as np
 import pytest
 
-from weaklink.modem.cli import BAUD_PRESETS
-from weaklink.modem.codec import ModemConfig, decode, encode
+from tests.test_wav_damage import _live_tx_buffer
+from weaklink.modem.api import BAUD_PRESETS
+from weaklink.modem.codec import ModemConfig, decode
 from weaklink.modem.waveform import WaveformConfig
-from tests_weaklink.test_wav_damage import _live_tx_buffer
 
 from ._streaming import pump_decode
 
@@ -64,7 +64,7 @@ def test_10_sequential_tx_all_decode_in_order(baud: int) -> None:
 
 @pytest.mark.parametrize("baud", [300, 1200])
 def test_10_sequential_tx_all_decode_in_order_e2e_streaming(baud: int) -> None:
-    """Same as above but pumped through ``_StreamingRxPump`` -- catches
+    """Same as above but pumped through ``_StreamingRxDecoder`` -- catches
     streaming-only bugs like the cross-call block-dedup regression that
     the batch test can't see. 45 baud omitted (too slow for CI)."""
     config = _config_for(baud)

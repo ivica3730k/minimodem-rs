@@ -17,8 +17,9 @@ import io
 import numpy as np
 import pytest
 
-from weaklink.modem.cli import BAUD_PRESETS, _StreamingRxPump
+from weaklink.modem.api import BAUD_PRESETS
 from weaklink.modem.codec import ModemConfig, encode
+from weaklink.modem.streaming import StreamingRxDecoder as _StreamingRxDecoder
 from weaklink.modem.waveform import WaveformConfig
 
 
@@ -32,7 +33,7 @@ def _cfg(baud: float) -> ModemConfig:
     )
 
 
-def _push_chunks(pump: _StreamingRxPump, audio: np.ndarray, chunk_samples: int) -> None:
+def _push_chunks(pump: _StreamingRxDecoder, audio: np.ndarray, chunk_samples: int) -> None:
     for start in range(0, audio.size, chunk_samples):
         pump.push(audio[start : start + chunk_samples].astype(np.float32))
 
@@ -52,7 +53,7 @@ def test_pump_decodes_after_leading_silence(baud: float) -> None:
     silence = np.zeros(int(silence_seconds * sr), dtype=np.float32)
 
     out = io.BytesIO()
-    pump = _StreamingRxPump(config, output=out)
+    pump = _StreamingRxDecoder(config, output=out)
     chunk = int(0.1 * sr)  # ~100 ms chunks, matches the CLI poll cadence
     _push_chunks(pump, silence, chunk)
     _push_chunks(pump, signal, chunk)
@@ -79,7 +80,7 @@ def test_pump_decodes_after_leading_low_noise(baud: float) -> None:
     noise = (rng.standard_normal(int(silence_seconds * sr)) * 0.005).astype(np.float32)
 
     out = io.BytesIO()
-    pump = _StreamingRxPump(config, output=out)
+    pump = _StreamingRxDecoder(config, output=out)
     chunk = int(0.1 * sr)
     _push_chunks(pump, noise, chunk)
     _push_chunks(pump, signal, chunk)

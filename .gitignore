@@ -30,3 +30,4 @@ ENV/
 log.txt
 *.wav
 
+.claude/

@@ -1,9 +1,29 @@
 [tool.poetry]
-name = "weaklink-9a3ice"
+name = "weaklink-modem"
 version = "0.0.0"
-description = "4-FSK streaming modem for HF SSB and wider channels: Reed-Solomon framing, soft Viterbi, round-robin block repetition, byte-pipe semantics."
-authors = ["Ivica"]
-packages = [{ include = "weaklink" }]
+description = "N-FSK streaming modem for HF SSB and wider channels: Reed-Solomon framing, soft Viterbi, round-robin block repetition, byte-pipe semantics."
+authors = ["ivica3730k"]
+license = "MIT"
+readme = "readme-pypi.md"
+packages = [{ include = "weaklink/modem" }]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Telecommunications Industry",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Communications :: Ham Radio",
+    "Topic :: Multimedia :: Sound/Audio",
+]
+
+[tool.poetry.urls]
+Homepage = "https://github.com/ivica3730k/weaklink-9a3ice"
+Repository = "https://github.com/ivica3730k/weaklink-9a3ice"
+"Bug Tracker" = "https://github.com/ivica3730k/weaklink-9a3ice/issues"
 
 [tool.poetry.dependencies]
 python = "^3.10"
@@ -14,7 +34,7 @@ sounddevice = "^0.5"
 
 [tool.poetry.group.dev.dependencies]
 black = "26.3.1"
-isort = "8.0.1"
+ruff = "^0.15.22"
 pre-commit = "4.6.0"
 pytest = "9.0.3"
 mypy = "^2.1.0"
@@ -23,8 +43,8 @@ setuptools = "82.0.1"
 pytest-xdist = "^3.8.0"
 
 [tool.poetry.scripts]
-weaklink-9a3ice = "weaklink.modem.cli:main"
-weaklink-benchmark = "weaklink.benchmark:main"
+weaklink-modem = "weaklink.modem.cli:main"
+weaklink-modem-benchmark = "weaklink.modem.benchmark:main"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
@@ -32,7 +52,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.black]
 line-length = 120
-target-version = ["py310"]
+target-version = ["py312"]
 include = '\.pyi?$'
 exclude = '''
 /(
@@ -47,15 +67,19 @@ exclude = '''
 [tool.pytest.ini_options]
 addopts = "-n auto"
 
-[tool.isort]
-profile = "black"
-line_length = 120
-multi_line_output = 3
-include_trailing_comma = true
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["F401", "I001"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["weaklink"]
 
 [tool.mypy]
-python_version = "3.10"
-files = ["weaklink", "tests_weaklink"]
+python_version = "3.12"
+files = ["weaklink", "tests"]
 ignore_missing_imports = true
 check_untyped_defs = true
 warn_redundant_casts = true

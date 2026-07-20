@@ -1,4 +1,4 @@
-"""M-FSK CPFSK modulator + non-coherent soft demodulator.
+"""N-FSK CPFSK modulator + non-coherent soft demodulator.
 
 Continuous-phase for narrow spectrum, non-coherent I/Q magnitudes (~3 dB
 worse than coherent but no carrier recovery). Gray-coded symbols so
@@ -14,6 +14,8 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from weaklink.modem.exceptions import ConfigError, NyquistError
+
 # Legacy module-level constants (still exposed for tests / callers that
 # only use 4-FSK). Prefer ``config.num_tones`` / ``config.bits_per_symbol``.
 BITS_PER_SYMBOL = 2
@@ -26,7 +28,7 @@ def _gray_tables(num_tones: int) -> tuple[np.ndarray, np.ndarray]:
     maps a binary index → its Gray-coded tone index; ``symbol_to_bits``
     is the inverse."""
     if num_tones < 2 or (num_tones & (num_tones - 1)) != 0:
-        raise ValueError(f"num_tones must be a power of 2 >= 2, got {num_tones}")
+        raise ConfigError(f"num_tones must be a power of 2 >= 2, got {num_tones}")
     bits_per_symbol = num_tones.bit_length() - 1
     bits_to_symbol = np.empty(num_tones, dtype=np.int8)
     symbol_to_bits = np.empty((num_tones, bits_per_symbol), dtype=np.int8)
@@ -65,7 +67,7 @@ class WaveformConfig:
 
     def __post_init__(self) -> None:
         if self.num_tones < 2 or (self.num_tones & (self.num_tones - 1)) != 0:
-            raise ValueError("num_tones must be a power of 2 >= 2")
+            raise ConfigError(f"num_tones must be a power of 2 >= 2, got {self.num_tones}")
         mean_offset = (self.num_tones - 1) / 2.0
         relative_offsets = tuple(
             (i - mean_offset) * self.tone_spacing_hz for i in range(self.num_tones)
@@ -77,10 +79,10 @@ class WaveformConfig:
         tones = tuple(self.center_hz + off for off in relative_offsets)
         object.__setattr__(self, "tones_hz", tones)
         if self.samples_per_symbol < 8:
-            raise ValueError("sample_rate / baud must be >= 8 samples per symbol")
+            raise ConfigError("sample_rate / baud must be >= 8 samples per symbol")
         nyquist = self.sample_rate / 2.0
         if max(tones) >= nyquist:
-            raise ValueError(
+            raise NyquistError(
                 f"top tone {max(tones):.0f} Hz exceeds Nyquist ({nyquist:.0f} Hz) -- "
                 f"num_tones={self.num_tones} at {self.baud} baud needs more bandwidth "
                 f"than the sample rate provides"
@@ -96,7 +98,7 @@ class WaveformConfig:
 
 
 def bits_to_symbols(bits: bytes, num_tones: int = NUM_TONES) -> np.ndarray:
-    """Pack a 0/1 bit stream into M-FSK symbol indices."""
+    """Pack a 0/1 bit stream into N-FSK symbol indices."""
     bits_per_symbol = num_tones.bit_length() - 1
     if len(bits) % bits_per_symbol != 0:
         raise ValueError(f"bit count {len(bits)} not a multiple of {bits_per_symbol}")
