@@ -186,17 +186,23 @@ through the same `_StreamingRxPump` the CLI uses.
 
 ## Glossary
 
-- **4-FSK / CPFSK** — Four continuous-phase tones, 2 bits per tone.
+- **N-FSK / CPFSK** — N continuous-phase tones, log₂(N) bits per symbol. Default N=4.
 - **Preamble** — Fixed 32-symbol PN sequence bracketing every slot; RX locks timing / frequency / amplitude from it.
 - **Slot** — Preamble + one RS-encoded block.
 - **Block** — RS-encoded chunk carrying header + payload.
-- **RS(N,K)** — Reed-Solomon outer code. K data + parity → N wire bytes; corrects (N-K)/2 byte errors.
+- **RS(n,k)** — Reed-Solomon outer code. k data + parity → n wire bytes; corrects (n-k)/2 byte errors.
 - **CRC-32** — Catches errors past RS correction.
 - **Convolutional code (K=7, r=1/2) + soft Viterbi** — Inner FEC and its decoder, driven by per-bit LLRs.
+- **LLR** — Log-likelihood ratio; a soft (real-valued) confidence per bit instead of a hard 0/1.
 - **Interleaver** — Bit shuffle so bursts become isolated errors. Ours changes every block (32-permutation cycle).
 - **Non-coherent demod** — Tone detection by energy; ~3 dB behind coherent.
 - **LO offset** — Radio frequency error; we correct up to ±500 Hz.
-- **Pilot** — Short random 4-FSK burst before / after every live TX.
+- **Pilot** — Short random N-FSK burst before / after every live TX.
+- **SNR (dB)** — Signal-to-noise ratio. Negative = noise louder than signal.
+- **AWGN** — Additive white Gaussian noise; the standard clean-channel noise model used by the benchmark.
+- **Shannon limit** — Theoretical lowest SNR at which a given data rate can be decoded error-free. Every FEC decoder sits some dB above it — that gap is what "Gap" columns report.
+- **Best SNR / cliff** — Lowest SNR at which decode still works for a given config. Below it, everything breaks.
+- **Nyquist theorem** — A signal is only recoverable if sampled above twice its highest frequency. In practice: tones must sit below sample_rate/2, and N-FSK tone spacing must be at least `1/T_symbol` for non-coherent orthogonality.
 
 ---
 

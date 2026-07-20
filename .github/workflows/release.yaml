@@ -12,10 +12,10 @@ jobs:
     name: Build wheel + sdist
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -31,7 +31,7 @@ jobs:
         run: poetry build
 
       - name: Upload to release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             dist/*.whl
@@ -39,13 +39,13 @@ jobs:
 
   build-binary:
     name: Build portable Linux binary
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Set up Python
         id: setup-python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -57,7 +57,7 @@ jobs:
       - name: Install build prerequisites
         run: |
           sudo apt-get update
-          sudo apt-get install -y patchelf libportaudio2 libsndfile1
+          sudo apt-get install -y patchelf libportaudio2 libsndfile1 scons musl-tools
 
       - name: Resolve version
         id: ver
@@ -93,7 +93,7 @@ jobs:
           cp dist/weaklink-9a3ice-linux-x86_64-${{ steps.ver.outputs.version }} dist/weaklink-9a3ice-linux-x86_64-latest
 
       - name: Upload to release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             dist/weaklink-9a3ice-linux-x86_64-${{ steps.ver.outputs.version }}
@@ -163,12 +163,12 @@ jobs:
 
   build-deb:
     name: Build Ubuntu .deb
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -228,7 +228,7 @@ jobs:
         run: cp weaklink-9a3ice_${{ steps.ver.outputs.version }}_amd64.deb weaklink-9a3ice_amd64-latest.deb
 
       - name: Upload to release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             weaklink-9a3ice_${{ steps.ver.outputs.version }}_amd64.deb
