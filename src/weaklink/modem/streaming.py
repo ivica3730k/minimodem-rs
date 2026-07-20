@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import time
+from typing import Any, Protocol
 
 import numpy as np
 
@@ -17,6 +18,12 @@ from weaklink.modem.constants import (
     LIVE_RX_SNAPSHOT_EVERY_POLLS,
 )
 from weaklink.modem.waveform import modulate
+
+
+class _ByteSink(Protocol):
+    """File-like object receiving decoded bytes from a streaming decoder."""
+    def write(self, data: bytes) -> int: ...
+    def flush(self) -> None: ...
 
 _log = logging.getLogger("weaklink.streaming")
 
@@ -35,16 +42,16 @@ class StreamingRxDecoder:
     for live audio and WAV -- callers push audio chunks as they arrive
     and stdout-like ``output`` receives decoded bytes."""
 
-    def __init__(self, config: ModemConfig, output) -> None:
+    def __init__(self, config: ModemConfig, output: _ByteSink) -> None:
         self.config = config
         self.output = output
         self.sample_rate = int(round(config.waveform.sample_rate))
-        self.chunks: list = []
+        self.chunks: list[np.ndarray] = []
         self.samples_before_buffer = 0
         self.cursor = 0
         # Cross-call dedup so block copies that straddle two decode()
         # calls don't emit the block twice.
-        self.streaming_state: dict = {}
+        self.streaming_state: dict[str, Any] = {}
         self._block_symbol_length = _block_symbol_length
 
         max_group_symbols = (
@@ -54,7 +61,7 @@ class StreamingRxDecoder:
         max_group_seconds = max_group_symbols / config.waveform.baud
         self.max_window_samples = int(max(60.0, 3.0 * max_group_seconds) * self.sample_rate)
 
-    def push(self, chunk) -> None:
+    def push(self, chunk: np.ndarray) -> None:
         self.chunks.append(chunk)
         self.try_emit()
 
@@ -176,7 +183,7 @@ def live_stream_decode(
     config: ModemConfig,
     *,
     audio_input: str,
-    output,
+    output: _ByteSink,
 ) -> None:
     """Live streaming decode loop. Blocks until KeyboardInterrupt.
     Decoded bytes go to ``output`` (any object with ``.write(bytes)``

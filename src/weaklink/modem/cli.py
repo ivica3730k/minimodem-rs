@@ -205,7 +205,12 @@ def _run_tx(args: argparse.Namespace) -> int:
 def _run_rx(args: argparse.Namespace) -> int:
     opts = _options_from_args(args)
     if args.modem_wav is not None:
-        rx(options=opts, wav=args.modem_wav, on_bytes=sys.stdout.buffer.write)
+        # Wrap so on_bytes matches the ``Callable[[bytes], None]`` signature
+        # (BufferedWriter.write returns int).
+        def _to_stdout(data: bytes) -> None:
+            sys.stdout.buffer.write(data)
+
+        rx(options=opts, wav=args.modem_wav, on_bytes=_to_stdout)
         sys.stdout.buffer.flush()
     else:
         # PULSE_SOURCE env-var fallback matches the previous CLI default.

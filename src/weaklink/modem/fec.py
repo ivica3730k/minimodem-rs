@@ -136,10 +136,11 @@ def decode(soft_bits: np.ndarray, num_output_bits: int) -> bytes:
     return bytes(output_bits[:num_output_bits].tolist())
 
 
-_PREDECESSOR_TABLE: tuple[tuple[tuple[int, int], tuple[int, int]], ...] | None = None
+_PredecessorTable = tuple[tuple[tuple[int, int], ...], ...]
+_PREDECESSOR_TABLE: _PredecessorTable | None = None
 
 
-def _build_predecessor_table() -> list[list[tuple[int, int]]]:
+def _build_predecessor_table() -> _PredecessorTable:
     """For each destination state, list the two (prev_state, input_bit) predecessors."""
     global _PREDECESSOR_TABLE
     if _PREDECESSOR_TABLE is not None:

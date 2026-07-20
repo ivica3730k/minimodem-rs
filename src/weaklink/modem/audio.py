@@ -13,7 +13,7 @@ import subprocess
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Iterator
+from typing import Callable, Iterable, Iterator
 
 import numpy as np
 import sounddevice
@@ -30,7 +30,9 @@ def write_wav(path: Path | str, samples: np.ndarray, sample_rate: float) -> None
     soundfile.write(str(path), np.asarray(samples, dtype=np.float32), int(round(sample_rate)))
 
 
-def write_wav_stream(path: Path | str, sample_chunks, sample_rate: float) -> None:
+def write_wav_stream(
+    path: Path | str, sample_chunks: Iterable[np.ndarray], sample_rate: float,
+) -> None:
     """Streaming sink: consume float32 sample chunks from an iterator and
     append them to a WAV file. Same shape as :func:`play_stream` -- WAV
     output is just another sink at the end of the sample-chunk chain, so
@@ -241,7 +243,7 @@ def _play_pulse(samples: np.ndarray, sample_rate: int, sink_name: str) -> None:
 
 
 def play_stream(
-    sample_chunks,
+    sample_chunks: Iterable[np.ndarray],
     sample_rate: float,
     *,
     device: str | None = None,
@@ -273,7 +275,9 @@ def play_stream(
         stream.close()
 
 
-def _play_pulse_stream(sample_chunks, sample_rate: int, sink_name: str) -> None:
+def _play_pulse_stream(
+    sample_chunks: Iterable[np.ndarray], sample_rate: int, sink_name: str,
+) -> None:
     proc = subprocess.Popen(
         [
             "paplay",
@@ -286,6 +290,8 @@ def _play_pulse_stream(sample_chunks, sample_rate: int, sink_name: str) -> None:
         stdin=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
+    # subprocess.Popen(stdin=PIPE, stderr=PIPE) guarantees both are set.
+    assert proc.stdin is not None and proc.stderr is not None
     try:
         for chunk in sample_chunks:
             proc.stdin.write(np.asarray(chunk, dtype=np.float32).tobytes())

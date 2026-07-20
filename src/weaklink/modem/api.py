@@ -269,6 +269,7 @@ def rx(
             return bytes(collected)
 
         # audio_input is not None (validated above).
+        assert audio_input is not None
         sink = _CallbackWriter(on_bytes) if on_bytes is not None else sys.stdout.buffer
         live_stream_decode(config, audio_input=audio_input, output=sink)
         return None

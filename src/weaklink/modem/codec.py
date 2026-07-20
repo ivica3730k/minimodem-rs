@@ -9,7 +9,7 @@ from __future__ import annotations
 import functools
 import math
 from dataclasses import dataclass, field
-from typing import Iterable, Iterator
+from typing import Any, Iterable, Iterator
 
 import numpy as np
 
@@ -274,8 +274,8 @@ def decode(
     config: ModemConfig,
     *,
     streaming: bool = False,
-    streaming_state: dict | None = None,
-):
+    streaming_state: dict[str, Any] | None = None,
+) -> bytes | tuple[bytes, int]:
     """Decode audio to bytes; undecodable blocks dropped.
 
     Batch mode returns ``bytes``. Streaming mode returns
