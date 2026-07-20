@@ -43,7 +43,7 @@ class ModemOptions:
     """Modem-layer parameters shared by both ``tx`` and ``rx``.
 
     Fields left as ``None`` fall back to the ``BAUD_PRESETS`` entry
-    for the selected baud. Same knobs as the CLI's ``--modem-*`` flags.
+    for the selected baud. Same parameters as the CLI's ``--modem-*`` flags.
     """
     baud: float = 300.0
     num_tones: int = 4
@@ -258,14 +258,14 @@ def rx(
                 if on_bytes:
                     on_bytes(bytes(data))
 
-            pump = StreamingRxDecoder(config, output=_CallbackWriter(_emit))
+            decoder = StreamingRxDecoder(config, output=_CallbackWriter(_emit))
             for chunk in read_wav_chunks(
                 str(wav),
                 chunk_seconds=0.1,
                 expected_sample_rate=config.waveform.sample_rate,
             ):
-                pump.push(chunk)
-            pump.drain()
+                decoder.push(chunk)
+            decoder.drain()
             return bytes(collected)
 
         # audio_input is not None (validated above).

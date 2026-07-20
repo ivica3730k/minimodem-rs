@@ -11,7 +11,7 @@ from weaklink.modem.cli import main as modem_main
 from weaklink.modem.codec import ModemConfig, decode, encode
 from weaklink.modem.waveform import WaveformConfig
 
-from ._streaming import pump_decode
+from ._streaming import stream_decode
 
 
 class _FakeStdio:
@@ -76,18 +76,18 @@ def test_500_byte_file_e2e_streaming() -> None:
     payload = _random_text(500, seed=1)
     config = _pipe_config()
     samples = encode(payload, config)
-    assert _strip(pump_decode(samples, config)) == payload
+    assert _strip(stream_decode(samples, config)) == payload
 
 
 def test_1000_byte_file_e2e_streaming() -> None:
     payload = _random_text(1000, seed=2)
     config = _pipe_config()
     samples = encode(payload, config)
-    assert _strip(pump_decode(samples, config)) == payload
+    assert _strip(stream_decode(samples, config)) == payload
 
 
 def test_odd_sized_file_e2e_streaming() -> None:
     payload = _random_text(97, seed=3)
     config = _pipe_config()
     samples = encode(payload, config)
-    assert _strip(pump_decode(samples, config)) == payload
+    assert _strip(stream_decode(samples, config)) == payload

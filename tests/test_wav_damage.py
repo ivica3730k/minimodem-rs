@@ -89,7 +89,7 @@ for baud in (45, 300, 1200):
 
 # Head chop: RX started late. Decoder projects a virtual leading
 # preamble; if it lands past buffer start, magnitudes get zero-padded
-# and RS mops up. Test up to 500 ms.
+# and RS corrects the resulting errors. Test up to 500 ms.
 for baud in (45, 300, 1200):
     for chop_ms in (100.0, 300.0, 500.0):
         CASES.append((
@@ -153,7 +153,7 @@ def test_decode_survives_wav_damage(baud: int, payload: bytes, damage: str, dama
 
 # --- e2e streaming variant --------------------------------------------------
 
-from ._streaming import pump_decode
+from ._streaming import stream_decode
 
 
 @pytest.mark.parametrize(
@@ -164,11 +164,11 @@ from ._streaming import pump_decode
 def test_decode_survives_wav_damage_e2e_streaming(
     baud: int, payload: bytes, damage: str, damage_fn,
 ) -> None:
-    """Same damage cases pumped through ``StreamingRxDecoder`` -- exercises
+    """Same damage cases fed through ``StreamingRxDecoder`` -- exercises
     the live-rx code path (chunk-by-chunk decode + cross-call state)."""
     buf, config = _live_tx_buffer(baud, payload)
     damaged = damage_fn(buf, config.waveform.sample_rate)
-    decoded = pump_decode(damaged, config) or b""
+    decoded = stream_decode(damaged, config) or b""
     assert payload in decoded, (
         f"{baud} baud {len(payload)}-byte payload after {damage!r} damage "
         f"(streaming) was not decoded; got {decoded[:80]!r}"

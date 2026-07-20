@@ -55,7 +55,7 @@ def test_combined_llrs_decode_below_single_copy_cliff(block_repeats: int) -> Non
 
 # --- e2e streaming variant --------------------------------------------------
 
-from ._streaming import pump_decode
+from ._streaming import stream_decode
 
 
 @pytest.mark.parametrize("block_repeats", [2, 4])
@@ -66,7 +66,7 @@ def test_combined_llrs_decode_below_single_copy_cliff_e2e_streaming(
     config = _cfg(block_repeats)
     audio = encode(payload, config)
     noisy = _awgn(audio, snr_db=-4.0, seed=block_repeats * 101)
-    decoded = pump_decode(noisy, config)
+    decoded = stream_decode(noisy, config)
     assert decoded == payload, (
         f"R={block_repeats} (streaming): expected {len(payload)} bytes, got {len(decoded)}"
     )

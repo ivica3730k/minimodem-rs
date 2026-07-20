@@ -14,7 +14,7 @@ from weaklink.modem.audio import read_wav, write_wav
 from weaklink.modem.cli import main as modem_main
 from weaklink.modem.codec import ModemConfig, decode, encode
 
-from ._streaming import pump_decode
+from ._streaming import stream_decode
 
 
 def _strip_trailing_nul(data: bytes) -> bytes:
@@ -76,7 +76,7 @@ def test_short_payload_clean_e2e_streaming() -> None:
     config = ModemConfig()
     message = b"weaklink modem streaming hello"
     samples = encode(message, config)
-    assert _strip_trailing_nul(pump_decode(samples, config)) == message
+    assert _strip_trailing_nul(stream_decode(samples, config)) == message
 
 
 def test_random_100_bytes_clean_e2e_streaming() -> None:
@@ -85,7 +85,7 @@ def test_random_100_bytes_clean_e2e_streaming() -> None:
     rng = random.Random(7)
     message = bytes(rng.choices(alphabet, k=100))
     samples = encode(message, config)
-    assert _strip_trailing_nul(pump_decode(samples, config)) == message
+    assert _strip_trailing_nul(stream_decode(samples, config)) == message
 
 
 # --- SNR sweep --------------------------------------------------------------

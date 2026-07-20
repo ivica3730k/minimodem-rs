@@ -332,7 +332,7 @@ class LiveInputStream:
         return self
 
     def __exit__(self, *_exc: object) -> None:
-        # SIGKILL + walk away. The OS reaps the pipes and the pump thread's
+        # SIGKILL + walk away. The OS reaps the pipes and the reader thread's
         # blocking read returns immediately once the fd closes. No waiting.
         self._stop_event.set()
         if self._sd_stream is not None:
@@ -378,7 +378,7 @@ class LiveInputStream:
             bufsize=0,
         )
 
-        def _pump() -> None:
+        def _reader() -> None:
             chunk_frames = max(1, self._sample_rate // 20)  # ~50 ms chunks
             chunk_bytes = chunk_frames * 4  # 4 bytes / float32
             assert self._proc is not None and self._proc.stdout is not None
@@ -388,7 +388,7 @@ class LiveInputStream:
                     break
                 self._callback(np.frombuffer(raw, dtype=np.float32).copy())
 
-        self._thread = threading.Thread(target=_pump, name="weaklink-parec", daemon=True)
+        self._thread = threading.Thread(target=_reader, name="weaklink-parec", daemon=True)
         self._thread.start()
 
 

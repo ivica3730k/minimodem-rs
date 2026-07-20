@@ -466,7 +466,7 @@ def decode(
         # Emit in block_index order. Missing indices leave a gap (a
         # single unrecoverable slot doesn't take the whole tail of a
         # long stream with it). Skip indices we've already emitted in
-        # a previous streaming call. The caller (pump) is responsible
+        # a previous streaming call. The caller (the streaming decoder) is responsible
         # for clearing ``emitted_indices`` at session boundaries.
         for i in sorted(msg.keys()):
             if i in emitted_indices:
@@ -796,7 +796,7 @@ def _find_preamble_peaks(
     # observed 1.0 reference). ``max(sigma-based, sidelobe-based)``
     # covers low-SNR (Gaussian noise dominates) and high-SNR (pattern-
     # vs-data sidelobes dominate) regimes without any M-specific
-    # magic constants.
+    # hard-coded constants.
     n_positions = max(scores.size, 2)
     sidelobe_max = math.sqrt(2.0 * math.log(n_positions)) / math.sqrt(
         max(1, num_tones - 1) * preamble_length

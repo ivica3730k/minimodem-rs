@@ -1,4 +1,4 @@
-"""Streaming rx must decode when the pump is fed silence *before* the
+"""Streaming rx must decode when the streaming decoder is fed silence *before* the
 signal arrives -- which is exactly what happens live (rx starts
 listening, then tx fires later).
 
@@ -33,31 +33,31 @@ def _cfg(baud: float) -> ModemConfig:
     )
 
 
-def _push_chunks(pump: _StreamingRxDecoder, audio: np.ndarray, chunk_samples: int) -> None:
+def _push_chunks(decoder: _StreamingRxDecoder, audio: np.ndarray, chunk_samples: int) -> None:
     for start in range(0, audio.size, chunk_samples):
-        pump.push(audio[start : start + chunk_samples].astype(np.float32))
+        decoder.push(audio[start : start + chunk_samples].astype(np.float32))
 
 
 @pytest.mark.parametrize("baud", [300.0, 1200.0])
-def test_pump_decodes_after_leading_silence(baud: float) -> None:
-    """Feed the pump seconds of pure silence (mimics rx started before tx),
+def test_stream_decodes_after_leading_silence(baud: float) -> None:
+    """Feed the streaming decoder seconds of pure silence (mimics rx started before tx),
     then real encoded audio; assert the payload decodes byte-for-byte."""
     config = _cfg(baud)
     payload = b"weaklink starts on silence and still decodes"
     signal = encode(payload, config)
     sr = int(round(config.waveform.sample_rate))
 
-    # 3 seconds of silence before the signal. Plenty for the pump to
+    # 3 seconds of silence before the signal. Plenty for the streaming decoder to
     # attempt at least one decode call on silence-only audio.
     silence_seconds = 3.0
     silence = np.zeros(int(silence_seconds * sr), dtype=np.float32)
 
     out = io.BytesIO()
-    pump = _StreamingRxDecoder(config, output=out)
+    decoder = _StreamingRxDecoder(config, output=out)
     chunk = int(0.1 * sr)  # ~100 ms chunks, matches the CLI poll cadence
-    _push_chunks(pump, silence, chunk)
-    _push_chunks(pump, signal, chunk)
-    pump.drain()
+    _push_chunks(decoder, silence, chunk)
+    _push_chunks(decoder, signal, chunk)
+    decoder.drain()
 
     got = out.getvalue()
     assert payload in got, (
@@ -66,7 +66,7 @@ def test_pump_decodes_after_leading_silence(baud: float) -> None:
 
 
 @pytest.mark.parametrize("baud", [300.0, 1200.0])
-def test_pump_decodes_after_leading_low_noise(baud: float) -> None:
+def test_stream_decodes_after_leading_low_noise(baud: float) -> None:
     """Same as above but with a low-level noise floor instead of pure
     silence -- closer to what a live mic / Pulse monitor delivers when
     no signal is playing."""
@@ -80,11 +80,11 @@ def test_pump_decodes_after_leading_low_noise(baud: float) -> None:
     noise = (rng.standard_normal(int(silence_seconds * sr)) * 0.005).astype(np.float32)
 
     out = io.BytesIO()
-    pump = _StreamingRxDecoder(config, output=out)
+    decoder = _StreamingRxDecoder(config, output=out)
     chunk = int(0.1 * sr)
-    _push_chunks(pump, noise, chunk)
-    _push_chunks(pump, signal, chunk)
-    pump.drain()
+    _push_chunks(decoder, noise, chunk)
+    _push_chunks(decoder, signal, chunk)
+    decoder.drain()
 
     got = out.getvalue()
     assert payload in got, (

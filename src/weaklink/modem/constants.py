@@ -1,9 +1,9 @@
-"""All shared module-level constants. Single source of truth so tuning
-knobs are grep-able and clashes are impossible.
+"""Shared module-level constants. Single source of truth so tuning
+values are searchable and duplication is impossible.
 
-Kept small on purpose: values that are truly private to one module
-(e.g. an internal buffer size only ``codec.py`` uses) stay next to
-their user. Anything imported from more than one module lives here.
+Kept small on purpose: values that are private to one module (e.g.
+an internal buffer size only ``codec.py`` uses) stay next to their
+user. Anything imported from more than one module lives here.
 """
 
 from __future__ import annotations
@@ -22,8 +22,9 @@ BAUD_PRESETS: dict[float, dict[str, float]] = {
 
 # ---- Live TX pilot padding -----------------------------------------------
 
-#: Pilot each side of live-tx: wakes the sink from IDLE (~50 ms) and
-#: gives the coarse-offset FFT real N-FSK tone energy to lock onto.
+#: Pilot padding on each side of live-tx: brings the audio sink out
+#: of its IDLE state (~50 ms of wake-up latency) and gives the
+#: coarse-offset FFT real N-FSK tone energy to lock onto.
 LIVE_TX_PILOT_MIN_SECONDS: float = 0.2
 
 #: Pilot must also exceed the preamble in symbol space so back-to-back
@@ -40,8 +41,9 @@ LIVE_TX_MIN_SECONDS: float = 1.0
 #: rigctld TCP default; matches the ``--hamlib-ptt`` bare-flag default.
 HAMLIB_DEFAULT_PORT: int = 4532
 
-#: PTT-to-audio guard. Radios need a beat between key-up and first
-#: sample or the leading pilot gets clipped by relay / AGC settling.
+#: PTT-to-audio guard. Radios need a small delay between key-up and
+#: first sample or the leading pilot gets clipped by relay / AGC
+#: settling.
 HAMLIB_PTT_LEAD_SECONDS: float = 0.1
 
 #: Symmetric tail: hold PTT past the last sample so the trailing pilot

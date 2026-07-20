@@ -11,7 +11,7 @@ import pytest
 from weaklink.modem.codec import ModemConfig, decode, encode, encode_stream
 from weaklink.modem.waveform import WaveformConfig
 
-from ._streaming import pump_decode
+from ._streaming import stream_decode
 
 
 def _config(baud: float = 1200.0) -> ModemConfig:
@@ -80,18 +80,18 @@ def test_stream_roundtrip_e2e_streaming(size: int) -> None:
     payload = np.random.default_rng(size).bytes(size)
     config = _config()
     audio = _stream_encode(payload, config, chunk_size=100)
-    assert pump_decode(audio, config) == payload
+    assert stream_decode(audio, config) == payload
 
 
 def test_repetitive_20kb_e2e_streaming() -> None:
     payload = (("a" * 500 + "\n" + "b" * 500 + "\n") * 20).encode()
     config = _config()
     audio = _stream_encode(payload, config, chunk_size=100)
-    assert pump_decode(audio, config) == payload
+    assert stream_decode(audio, config) == payload
 
 
 def test_over_256_blocks_e2e_streaming() -> None:
     config = _config()
     payload = b"x" * 6500
     audio = _stream_encode(payload, config, chunk_size=250)
-    assert pump_decode(audio, config) == payload
+    assert stream_decode(audio, config) == payload

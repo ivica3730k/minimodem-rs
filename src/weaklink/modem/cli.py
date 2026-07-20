@@ -21,9 +21,9 @@ _log = logging.getLogger("weaklink.cli")
 
 
 def _add_modem_args(sub: argparse.ArgumentParser) -> None:
-    """All modem-side knobs. ``--modem-*``.
+    """All modem-side parameters. ``--modem-*``.
 
-    Presetable knobs default to ``None`` at the CLI layer so we can detect
+    Presetable parameters default to ``None`` at the CLI layer so we can detect
     "user didn't set this" and fill from ``BAUD_PRESETS`` instead. Explicit
     ``--modem-*`` values still win.
     """

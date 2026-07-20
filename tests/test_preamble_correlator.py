@@ -104,7 +104,7 @@ def test_decode_under_10db_slow_fading(baud: int) -> None:
 
 # --- e2e streaming variants -------------------------------------------------
 
-from ._streaming import pump_decode
+from ._streaming import stream_decode
 
 
 def test_edge_transient_before_signal_e2e_streaming(config: ModemConfig) -> None:
@@ -114,7 +114,7 @@ def test_edge_transient_before_signal_e2e_streaming(config: ModemConfig) -> None
     lead = rng.standard_normal(lead_len).astype(np.float32) * 0.9
     tail = np.zeros(int(0.5 * config.waveform.sample_rate), dtype=np.float32)
     buffer = np.concatenate([lead, real, tail])
-    decoded = pump_decode(buffer, config)
+    decoded = stream_decode(buffer, config)
     assert b"hello weaklink" in decoded
 
 
@@ -138,5 +138,5 @@ def test_decode_under_10db_slow_fading_e2e_streaming(baud: int) -> None:
     rng = np.random.default_rng(0)
     sig_p = float(np.mean(faded.astype(np.float64) ** 2))
     noise = rng.standard_normal(len(faded)).astype(np.float32) * np.sqrt(sig_p * 10 ** (-5 / 10))
-    decoded = pump_decode(faded + noise, config)
+    decoded = stream_decode(faded + noise, config)
     assert payload in decoded, f"{baud} baud + 10 dB fade + 5 dB SNR (streaming): {decoded[:80]!r}"

@@ -151,14 +151,14 @@ class StreamingRxDecoder:
         return progress
 
 
-def audio_level_snapshot(pump: StreamingRxDecoder) -> None:
+def audio_level_snapshot(decoder: StreamingRxDecoder) -> None:
     """One-second peak + RMS snapshot; logs to ``weaklink.streaming``."""
-    if not pump.chunks:
+    if not decoder.chunks:
         return
-    recent_needed = pump.sample_rate  # 1 second
+    recent_needed = decoder.sample_rate  # 1 second
     recent: list[np.ndarray] = []
     recent_len = 0
-    for chunk in reversed(pump.chunks):
+    for chunk in reversed(decoder.chunks):
         recent.append(chunk)
         recent_len += chunk.size
         if recent_len >= recent_needed:
@@ -186,13 +186,13 @@ def live_stream_decode(
         _log.debug("audio input hint %r -> %s", audio_input, target.describe())
     sample_rate = int(round(config.waveform.sample_rate))
 
-    pump = StreamingRxDecoder(config, output=output)
-    _log.debug("live rx buffer cap: %.1f s", pump.max_window_samples / sample_rate)
+    decoder = StreamingRxDecoder(config, output=output)
+    _log.debug("live rx buffer cap: %.1f s", decoder.max_window_samples / sample_rate)
 
     def _callback(indata_1d: np.ndarray) -> None:
-        # Don't call pump.push -- try_emit runs numpy-heavy work and
+        # Don't call decoder.push -- try_emit runs numpy-heavy work and
         # mustn't block the audio callback. Just buffer.
-        pump.chunks.append(indata_1d)
+        decoder.chunks.append(indata_1d)
 
     _log.debug("live rx: polling every %d ms, source %s", LIVE_RX_POLL_MS, target.describe())
 
@@ -202,13 +202,13 @@ def live_stream_decode(
             while True:
                 time.sleep(LIVE_RX_POLL_MS / 1000.0)
                 poll_counter += 1
-                pump.try_emit()
-                pump.on_session_end()
+                decoder.try_emit()
+                decoder.on_session_end()
                 if poll_counter % LIVE_RX_SNAPSHOT_EVERY_POLLS == 0:
-                    audio_level_snapshot(pump)
+                    audio_level_snapshot(decoder)
     except KeyboardInterrupt:
         _log.debug("live rx: keyboard interrupt, draining tail")
-    pump.drain()
+    decoder.drain()
     try:
         output.flush()
     except (AttributeError, OSError):

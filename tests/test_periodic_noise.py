@@ -71,7 +71,7 @@ def test_decodes_through_periodic_notches(payload_size: int) -> None:
 
 # --- e2e streaming variant --------------------------------------------------
 
-from ._streaming import pump_decode
+from ._streaming import stream_decode
 
 
 @pytest.mark.parametrize("payload_size", [200, 500])
@@ -83,7 +83,7 @@ def test_decodes_through_periodic_notches_e2e_streaming(payload_size: int) -> No
     notched = _inject_periodic_notch(
         audio, sample_rate, period_seconds=0.85, notch_width_seconds=0.08, depth_db=15.0,
     )
-    decoded = pump_decode(notched, config)
+    decoded = stream_decode(notched, config)
     assert decoded == payload, (
         f"periodic-notch e2e streaming decode failed: {len(decoded)}/{len(payload)} bytes"
     )
