@@ -334,13 +334,27 @@ def decode(
     if not peaks:
         _log.debug("no preambles above threshold")
         # Coarse-offset cache stays unproven: drop it so the next call
-        # re-runs the FFT against fresher audio. Also drop the emitted-
-        # block dedup set -- losing lock ends the session, so a fresh
-        # TX's block 0 must not be swallowed as a "duplicate" of the
-        # previous session's block 0.
+        # re-runs the FFT against fresher audio. Signal end-of-session
+        # only if we HAD lock (cache existed): silence-before-first-TX
+        # shouldn't fire the flush.
         if streaming and streaming_state is not None:
-            streaming_state.pop("coarse_offset_hz", None)
-            streaming_state.pop("emitted", None)
+            if streaming_state.pop("coarse_offset_hz", None) is not None:
+                streaming_state["session_ended"] = True
+                # Session is over -- flush any pending (unfinalised)
+                # blocks. The last block may have < R copies but we
+                # take what we've got.
+                pending = streaming_state.get("pending_blocks", {})
+                emitted = streaming_state.setdefault("emitted", set())
+                tail = bytearray()
+                for i in sorted(pending.keys()):
+                    if i not in emitted:
+                        tail.extend(pending[i])
+                        emitted.add(i)
+                streaming_state["pending_blocks"] = {}
+                streaming_state["copies_seen"] = {}
+                streaming_state["expected_block_index"] = 0
+                if tail:
+                    return (bytes(tail), 0) if streaming else bytes(tail)
         return (b"", 0) if streaming else b""
     # Peaks found: the offset estimate is proven. Cache it if fresh so
     # subsequent calls skip the FFT.
@@ -431,17 +445,47 @@ def decode(
         if streaming_state is not None
         else set()
     )
+    # Blocks decoded but not yet R-copy-confirmed. Persists across
+    # streaming calls so a block whose R copies straddle two decode
+    # windows still finalises correctly. On message boundary or
+    # session end these are flushed unconditionally.
+    pending_blocks: dict[int, bytes] = (
+        streaming_state.setdefault("pending_blocks", {})
+        if streaming_state is not None
+        else {}
+    )
+    copies_seen: dict[int, int] = (
+        streaming_state.setdefault("copies_seen", {})
+        if streaming_state is not None
+        else {}
+    )
 
     def _flush_message(msg: dict[int, bytes]) -> None:
         # Emit in block_index order. Missing indices leave a gap (a
         # single unrecoverable slot doesn't take the whole tail of a
         # long stream with it). Skip indices we've already emitted in
-        # a previous streaming call.
+        # a previous streaming call. The caller (pump) is responsible
+        # for clearing ``emitted_indices`` at session boundaries.
         for i in sorted(msg.keys()):
             if i in emitted_indices:
                 continue
             output.extend(msg[i])
             emitted_indices.add(i)
+
+    def _flush_pending_all(reason: str) -> None:
+        # Emit every buffered block, R-confirmed or not. Called on
+        # message boundary / session end -- the last block(s) may have
+        # fewer than R observed copies, but the message is over so we
+        # take what we've got.
+        if not pending_blocks:
+            return
+        _log.debug("flushing %d unfinalised block(s) (%s)", len(pending_blocks), reason)
+        for i in sorted(pending_blocks.keys()):
+            if i not in emitted_indices:
+                output.extend(pending_blocks[i])
+                emitted_indices.add(i)
+        pending_blocks.clear()
+        copies_seen.clear()
 
     stride = block_length + len(preamble)
     current_msg: dict[int, bytes] = {}
@@ -449,24 +493,34 @@ def decode(
     # search's candidate order so the common case (no missed slots) hits
     # on the first try. When block_repeats > 1 we expect the same
     # block_index for R slots in a row, then advance.
-    expected_block_index = 0
+    expected_block_index = (
+        streaming_state.get("expected_block_index", 0)
+        if streaming_state is not None else 0
+    )
     copies_seen_this_block = 0
     # Soft LLRs of consecutive slots that failed to decode independently;
     # once we have block_repeats of them we try soft-LLR combining.
     combining_buffer: list[np.ndarray] = []
 
+    def _observe_copy(header_block_index: int, content: bytes, errors: int) -> None:
+        """Record one copy of a block; commit to output when R copies seen."""
+        if header_block_index in emitted_indices:
+            return
+        if header_block_index not in pending_blocks:
+            pending_blocks[header_block_index] = content
+        copies_seen[header_block_index] = copies_seen.get(header_block_index, 0) + 1
+        if copies_seen[header_block_index] >= config.block_repeats:
+            current_msg[header_block_index] = pending_blocks.pop(header_block_index)
+            copies_seen.pop(header_block_index, None)
+
     def _record_block(
         decoded: bytes, errors: int, header_block_index: int,
-        msg_dict: dict[int, bytes],
-    ) -> None:
+    ) -> bytes:
         length = decoded[0]
         payload_area_size = len(decoded) - _HEADER_BYTES
         if length > payload_area_size:
             length = payload_area_size
-        if header_block_index not in msg_dict:
-            msg_dict[header_block_index] = bytes(
-                decoded[_HEADER_BYTES : _HEADER_BYTES + length]
-            )
+        return bytes(decoded[_HEADER_BYTES : _HEADER_BYTES + length])
 
     slot_i = 0
     while slot_i < len(peaks) - 1:
@@ -488,6 +542,7 @@ def decode(
                 del per_peak_offsets[slot_i + 1]
                 continue  # retry with the same slot_i
             _log.debug("slot %d span %d: message boundary", slot_i, span)
+            _flush_pending_all("message boundary")
             _flush_message(current_msg)
             current_msg = {}
             # New message starts fresh -- previous message's block_indices
@@ -520,10 +575,8 @@ def decode(
                     found_seed_slot, header_block_index, config.block_repeats
                 ):
                     accepted = True
-                    _record_block(
-                        decoded, errors_corrected, header_block_index,
-                        current_msg,
-                    )
+                    content = _record_block(decoded, errors_corrected, header_block_index)
+                    _observe_copy(header_block_index, content, errors_corrected)
                     slot_decoded += 1
                     if errors_corrected > 0:
                         total_rs_errors_corrected += errors_corrected
@@ -545,7 +598,14 @@ def decode(
                     )
                     if dec is not None and len(dec) >= _HEADER_BYTES:
                         header_block_index = (dec[1] << 8) | dec[2]
-                        _record_block(dec, errs, header_block_index, current_msg)
+                        # Combined decode consumed R copies at once ->
+                        # block is finalised immediately regardless of
+                        # copies_seen so far.
+                        if header_block_index not in emitted_indices:
+                            content = _record_block(dec, errs, header_block_index)
+                            current_msg[header_block_index] = content
+                            pending_blocks.pop(header_block_index, None)
+                            copies_seen.pop(header_block_index, None)
                         slot_decoded += 1
                         if errs > 0:
                             total_rs_errors_corrected += errs
@@ -557,6 +617,14 @@ def decode(
         slot_i += 1
 
     _flush_message(current_msg)
+    if streaming and streaming_state is not None:
+        # Persist unfinalised state so a block whose R copies straddle
+        # two streaming calls picks up where it left off.
+        streaming_state["expected_block_index"] = expected_block_index
+    else:
+        # Batch mode (drain / WAV rx): no more calls coming, flush
+        # whatever is buffered.
+        _flush_pending_all("batch mode end")
 
     if total_rs_errors_corrected > 0:
         _log.warning("RS corrected %d byte-symbol(s) total", total_rs_errors_corrected)

@@ -386,6 +386,21 @@ class _StreamingRxPump:
         self.chunks.append(chunk)
         self.try_emit()
 
+    def _write_out(self, decoded: bytes) -> None:
+        if not decoded:
+            return
+        self.output.write(decoded)
+        try:
+            self.output.flush()
+        except (AttributeError, OSError):
+            pass
+
+    def on_session_end(self) -> None:
+        # Codec sets ``session_ended`` when it loses lock after having had
+        # it. Reset the block-index dedup so the next TX starts fresh.
+        if self.streaming_state.pop("session_ended", False):
+            self.streaming_state.pop("emitted", None)
+
     def drain(self) -> None:
         """Flush at end-of-stream (WAV mode). Streaming decode until
         progress stalls, then batch decode over the tail so end-of-
@@ -404,12 +419,7 @@ class _StreamingRxPump:
             tail, self.config, streaming=False,
             streaming_state=self.streaming_state,
         )
-        if decoded:
-            self.output.write(decoded)
-            try:
-                self.output.flush()
-            except (AttributeError, OSError):
-                pass
+        self._write_out(decoded)
         self.chunks.clear()
         self.samples_before_buffer += buffer.size
 
@@ -442,12 +452,7 @@ class _StreamingRxPump:
             window, self.config, streaming=True, streaming_state=self.streaming_state,
         )
         progress = safe_cursor_offset > 0 or bool(decoded)
-        if decoded:
-            self.output.write(decoded)
-            try:
-                self.output.flush()
-            except (AttributeError, OSError):
-                pass
+        self._write_out(decoded)
         self.cursor = buffer_start_stream_pos + cursor_in_buffer + safe_cursor_offset
 
         while self.chunks:
@@ -532,6 +537,7 @@ def _live_stream_decode(config: ModemConfig, *, audio_input: str | None = None) 
                 time.sleep(poll_ms / 1000.0)
                 poll_counter += 1
                 pump.try_emit()
+                pump.on_session_end()
                 if poll_counter % snapshot_every_polls == 0:
                     _log_audio_snapshot()
     except KeyboardInterrupt:
