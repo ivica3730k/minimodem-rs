@@ -146,6 +146,16 @@ def _build_parser() -> argparse.ArgumentParser:
     tx_parser = subparsers.add_parser("tx", help="Encode stdin bytes and transmit (or write to WAV).")
     _add_modem_args(tx_parser)
     tx_parser.add_argument(
+        "--modem-tune",
+        action="store_true",
+        default=False,
+        dest="modem_tune",
+        help="Emit every tone of the selected mode in round-robin (one symbol "
+        "each, cycling). No framing, no preamble, no stdin -- just clean tones "
+        "for radio tuneup / audio path verification. Runs until Ctrl-C. "
+        "Honours --modem-tx-volume and --hamlib-ptt.",
+    )
+    tx_parser.add_argument(
         "--modem-tx-volume",
         type=int,
         default=100,
@@ -296,6 +306,44 @@ def _pilot_signal(config: ModemConfig, duration_seconds: float) -> "np.ndarray":
     return modulate(symbols, config.waveform)
 
 
+def _run_tune(args: argparse.Namespace) -> int:
+    """Emit every tone of the selected mode, one symbol each, cycling
+    forever. No framing, no preamble -- just clean carriers for radio
+    tuneup. Ctrl-C stops it."""
+    import numpy as np
+
+    from weaklink.modem.audio import play_stream
+    from weaklink.modem.waveform import modulate
+
+    if args.modem_wav is not None:
+        raise ConfigError("--modem-tune is a live-audio-only operation; drop --modem-wav.")
+
+    config = _make_config(args)
+    sample_rate = config.waveform.sample_rate
+    num_tones = config.waveform.num_tones
+
+    def tune_chunks():
+        # One "cycle" = every tone index in order, one symbol each.
+        # Iterating this indefinitely under Ctrl-C.
+        cycle_symbols = np.arange(num_tones, dtype=np.int64)
+        while True:
+            yield modulate(cycle_symbols, config.waveform).astype(np.float32)
+
+    _log.info(
+        "tune: cycling %d tones (%s Hz) at %.0f baud",
+        num_tones,
+        " / ".join(f"{t:.0f}" for t in config.waveform.tones_hz),
+        config.waveform.baud,
+    )
+
+    try:
+        with _hamlib_ptt(getattr(args, "hamlib_ptt", None)):
+            play_stream(tune_chunks(), sample_rate, device=args.modem_audio_output)
+    except KeyboardInterrupt:
+        _log.debug("tune: keyboard interrupt, exiting")
+    return 0
+
+
 def _run_tx(args: argparse.Namespace) -> int:
     import numpy as np
 
@@ -303,6 +351,9 @@ def _run_tx(args: argparse.Namespace) -> int:
 
     if args.modem_wav is not None and getattr(args, "hamlib_ptt", None) is not None:
         raise ConfigError("--hamlib-ptt is only valid with live audio TX; drop --modem-wav or --hamlib-ptt.")
+
+    if getattr(args, "modem_tune", False):
+        return _run_tune(args)
 
     config = _make_config(args)
     sample_rate = config.waveform.sample_rate

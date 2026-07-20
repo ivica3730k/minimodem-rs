@@ -17,6 +17,8 @@ from typing import Any, Callable
 
 import numpy as np
 
+from weaklink.modem.exceptions import ConfigError
+
 _log = logging.getLogger("weaklink.audio")
 
 
@@ -54,7 +56,7 @@ def read_wav(path: Path | str, *, expected_sample_rate: float | None = None) -> 
     if data.ndim > 1:
         data = data.mean(axis=1).astype(np.float32)
     if expected_sample_rate is not None and int(round(expected_sample_rate)) != int(sample_rate):
-        raise ValueError(
+        raise ConfigError(
             f"WAV sample rate {sample_rate} Hz does not match expected {expected_sample_rate} Hz"
         )
     return data, int(sample_rate)
@@ -74,7 +76,7 @@ def read_wav_chunks(
 
     with soundfile.SoundFile(str(path)) as sf:
         if expected_sample_rate is not None and int(round(expected_sample_rate)) != sf.samplerate:
-            raise ValueError(
+            raise ConfigError(
                 f"WAV sample rate {sf.samplerate} Hz does not match expected {expected_sample_rate} Hz"
             )
         chunk_frames = max(1, int(chunk_seconds * sf.samplerate))
