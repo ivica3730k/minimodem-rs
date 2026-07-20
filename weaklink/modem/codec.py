@@ -30,6 +30,7 @@ from weaklink.modem.waveform import (
     modulate,
     soft_bits_from_magnitudes,
 )
+from weaklink.modem.exceptions import ConfigError, EncodeError
 from weaklink.modem.rs import BlockConfig, RSBlockCodec
 
 
@@ -103,11 +104,11 @@ class ModemConfig:
 
     def __post_init__(self) -> None:
         if self.sync_every_blocks < 1:
-            raise ValueError("sync_every_blocks must be >= 1")
+            raise ConfigError("sync_every_blocks must be >= 1")
         if self.rs_data_bytes < 1:
-            raise ValueError("rs_data_bytes must be >= 1")
+            raise ConfigError("rs_data_bytes must be >= 1")
         if self.block_repeats < 1:
-            raise ValueError("block_repeats must be >= 1")
+            raise ConfigError("block_repeats must be >= 1")
 
     def rs_codec(self) -> RSBlockCodec:
         return _cached_rs_codec(
@@ -189,11 +190,11 @@ _MAX_BLOCK_INDEX: int = 0xFFFF
 
 def _validate_data_bytes(data_bytes: int) -> None:
     if data_bytes < _HEADER_BYTES + 1:
-        raise ValueError(
+        raise ConfigError(
             f"rs_data_bytes must be >= {_HEADER_BYTES + 1} (header + 1 payload byte)"
         )
     if data_bytes > 256:
-        raise ValueError("rs_data_bytes must be <= 256 (length header is 1 byte)")
+        raise ConfigError("rs_data_bytes must be <= 256 (length header is 1 byte)")
 
 
 def _frame_block(chunk: bytes, block_index: int, payload_per_block: int) -> bytes:
@@ -235,7 +236,7 @@ def encode_stream(
         buffer.extend(chunk)
         while len(buffer) >= payload_per_block:
             if block_index > _MAX_BLOCK_INDEX:
-                raise ValueError(
+                raise EncodeError(
                     f"stream too long: block_index exceeded {_MAX_BLOCK_INDEX}"
                 )
             yield from emit_block(bytes(buffer[:payload_per_block]), block_index)

@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 
 from weaklink.modem.codec import ModemConfig, decode, encode
+from weaklink.modem.exceptions import ConfigError
 from weaklink.modem.waveform import WaveformConfig
 
 
@@ -22,7 +23,7 @@ def _awgn(samples: np.ndarray, snr_db: float, seed: int) -> np.ndarray:
 def test_decode_success_monotonic_in_snr(baud: float, num_tones: int) -> None:
     try:
         waveform = WaveformConfig(baud=baud, tone_spacing_hz=baud, num_tones=num_tones)
-    except ValueError as e:
+    except (ValueError, ConfigError) as e:
         pytest.skip(str(e))
     config = ModemConfig(
         waveform=waveform,

@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Sequence
 
 from weaklink.modem.codec import ModemConfig, decode, encode, encode_stream
+from weaklink.modem.exceptions import ConfigError, PTTError, WeaklinkError
 from weaklink.modem.waveform import WaveformConfig
 
 DEFAULT_LOG_PATH = Path("log.txt")
@@ -170,9 +171,9 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def _pick_preset(baud: float) -> dict[str, float]:
-    """Look up the preset for ``baud``. Only the four tested bauds are supported."""
+    """Look up the preset for ``baud``. Only the tested bauds are supported."""
     if baud not in BAUD_PRESETS:
-        raise NotImplementedError(
+        raise ConfigError(
             f"baud {baud} is not supported; use one of {sorted(BAUD_PRESETS.keys())}"
         )
     return BAUD_PRESETS[baud]
@@ -187,7 +188,7 @@ def _make_config(args: argparse.Namespace) -> ModemConfig:
     num_tones = args.modem_num_tones if args.modem_num_tones is not None else 4
     tx_volume = getattr(args, "modem_tx_volume", 100)
     if not 0 <= tx_volume <= 100:
-        raise SystemExit(f"--modem-tx-volume must be 0-100 (got {tx_volume})")
+        raise ConfigError(f"--modem-tx-volume must be 0-100 (got {tx_volume})")
     waveform_kwargs = dict(
         baud=args.modem_baud,
         tone_spacing_hz=preset["tone_spacing_hz"],
@@ -243,7 +244,7 @@ def _parse_hamlib_endpoint(spec: str) -> tuple[str, int]:
     try:
         port = int(port_text)
     except ValueError as exc:
-        raise ValueError(f"invalid --hamlib-ptt port {port_text!r}") from exc
+        raise ConfigError(f"invalid --hamlib-ptt port {port_text!r}") from exc
     return host, port
 
 
@@ -259,9 +260,15 @@ def _hamlib_ptt(spec: str | None):
 
     host, port = _parse_hamlib_endpoint(spec)
     _log.debug("hamlib PTT: connecting to %s:%d", host, port)
-    sock = socket.create_connection((host, port), timeout=5.0)
     try:
-        sock.sendall(b"T 1\n")
+        sock = socket.create_connection((host, port), timeout=5.0)
+    except OSError as e:
+        raise PTTError(f"rigctld connect {host}:{port} failed: {e}") from e
+    try:
+        try:
+            sock.sendall(b"T 1\n")
+        except OSError as e:
+            raise PTTError(f"rigctld T 1 (key up) failed: {e}") from e
         _log.debug("hamlib PTT: keyed, waiting %.0f ms", _HAMLIB_PTT_LEAD_SECONDS * 1000)
         time.sleep(_HAMLIB_PTT_LEAD_SECONDS)
         yield
@@ -295,7 +302,7 @@ def _run_tx(args: argparse.Namespace) -> int:
     from weaklink.modem.audio import play_stream, write_wav_stream
 
     if args.modem_wav is not None and getattr(args, "hamlib_ptt", None) is not None:
-        raise SystemExit("--hamlib-ptt is only valid with live audio TX; drop --modem-wav or --hamlib-ptt.")
+        raise ConfigError("--hamlib-ptt is only valid with live audio TX; drop --modem-wav or --hamlib-ptt.")
 
     config = _make_config(args)
     sample_rate = config.waveform.sample_rate
@@ -572,9 +579,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     _configure_logging(args.modem_log_file, args.modem_debug)
     _log.debug("weaklink-modem %s starting", args.direction)
     try:
-        if args.direction == "tx":
-            return _run_tx(args)
-        return _run_rx(args)
+        try:
+            if args.direction == "tx":
+                return _run_tx(args)
+            return _run_rx(args)
+        except WeaklinkError as e:
+            # Typed library errors get a clean shell line, not a traceback.
+            print(f"error: {e}", file=sys.stderr)
+            return 2
     finally:
         logging.shutdown()
 

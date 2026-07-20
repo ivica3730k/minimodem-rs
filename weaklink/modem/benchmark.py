@@ -25,6 +25,7 @@ from pathlib import Path
 import numpy as np
 
 from weaklink.modem.codec import ModemConfig, decode, encode
+from weaklink.modem.exceptions import ConfigError
 from weaklink.modem.waveform import WaveformConfig
 
 REFERENCE_BANDWIDTH_HZ: float = 3_000.0
@@ -164,7 +165,7 @@ def _enumerate_configs() -> list[Config]:
                     # can't).
                     try:
                         cfg.build()
-                    except ValueError:
+                    except ConfigError:
                         continue
                     configs.append(cfg)
     return configs
