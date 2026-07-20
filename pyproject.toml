@@ -34,7 +34,7 @@ sounddevice = "^0.5"
 
 [tool.poetry.group.dev.dependencies]
 black = "26.3.1"
-isort = "8.0.1"
+ruff = "^0.15.22"
 pre-commit = "4.6.0"
 pytest = "9.0.3"
 mypy = "^2.1.0"
@@ -67,11 +67,15 @@ exclude = '''
 [tool.pytest.ini_options]
 addopts = "-n auto"
 
-[tool.isort]
-profile = "black"
-line_length = 120
-multi_line_output = 3
-include_trailing_comma = true
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["F401", "I001"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["weaklink"]
 
 [tool.mypy]
 python_version = "3.12"

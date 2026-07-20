@@ -18,10 +18,10 @@ import string
 import numpy as np
 import pytest
 
-from weaklink.modem.api import BAUD_PRESETS
-from weaklink.modem.codec import ModemConfig, decode, encode
-from weaklink.modem.waveform import WaveformConfig
 from tests.test_wav_damage import _live_tx_buffer
+from weaklink.modem.api import BAUD_PRESETS
+from weaklink.modem.codec import ModemConfig, decode
+from weaklink.modem.waveform import WaveformConfig
 
 from ._streaming import pump_decode
 

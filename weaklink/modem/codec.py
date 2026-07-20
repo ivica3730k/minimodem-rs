@@ -13,15 +13,17 @@ from typing import Iterable, Iterator
 import numpy as np
 
 from weaklink.modem import fec
+from weaklink.modem.exceptions import ConfigError, EncodeError
 from weaklink.modem.interleaver import (
     InterleaverConfig,
-    cycle_size as _interleaver_cycle_size,
     deinterleave_soft,
     interleave,
 )
+from weaklink.modem.interleaver import (
+    cycle_size as _interleaver_cycle_size,
+)
+from weaklink.modem.rs import BlockConfig, RSBlockCodec
 from weaklink.modem.waveform import (
-    BITS_PER_SYMBOL,
-    NUM_TONES,
     WaveformConfig,
     bits_to_symbols,
     demodulate_soft,
@@ -30,8 +32,6 @@ from weaklink.modem.waveform import (
     modulate,
     soft_bits_from_magnitudes,
 )
-from weaklink.modem.exceptions import ConfigError, EncodeError
-from weaklink.modem.rs import BlockConfig, RSBlockCodec
 
 
 @functools.lru_cache(maxsize=32)

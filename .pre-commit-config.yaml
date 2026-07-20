@@ -3,6 +3,14 @@ default_install_hook_types:
   - commit-msg
 
 repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.22
+    hooks:
+      - id: ruff
+        # Auto-fix unused imports (F401) and import ordering (I001).
+        args: [--fix, --select=F401,I001, weaklink, tests, examples, scripts]
+        pass_filenames: false
+
   - repo: https://github.com/psf/black
     rev: 25.1.0
     hooks:
@@ -10,14 +18,6 @@ repos:
         stages: [pre-commit]
         language_version: python3
         args: ["--config", "pyproject.toml", "weaklink", "tests"]
-        pass_filenames: false
-
-  - repo: https://github.com/pycqa/isort
-    rev: 6.0.1
-    hooks:
-      - id: isort
-        stages: [pre-commit]
-        args: ["--settings-path", "pyproject.toml", "weaklink", "tests"]
         pass_filenames: false
 
   - repo: https://github.com/pre-commit/mirrors-mypy

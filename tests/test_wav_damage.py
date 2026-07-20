@@ -9,16 +9,15 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from weaklink.modem._streaming import (
-    LIVE_TX_MIN_SECONDS as _LIVE_TX_MIN_SECONDS,
-    LIVE_TX_PILOT_MIN_SECONDS as _LIVE_TX_PILOT_MIN_SECONDS,
-    LIVE_TX_PILOT_MIN_SYMBOLS as _LIVE_TX_PILOT_MIN_SYMBOLS,
-    pilot_signal as _pilot_signal,
-)
-from weaklink.modem.api import BAUD_PRESETS
 from weaklink.modem.codec import ModemConfig, decode, encode
+from weaklink.modem.constants import (
+    BAUD_PRESETS,
+    LIVE_TX_MIN_SECONDS,
+    LIVE_TX_PILOT_MIN_SECONDS,
+    LIVE_TX_PILOT_MIN_SYMBOLS,
+)
+from weaklink.modem.streaming import pilot_signal
 from weaklink.modem.waveform import WaveformConfig
-
 
 PAYLOAD_1B = b"h"
 PAYLOAD_10B = b"helloWorld"
@@ -39,11 +38,11 @@ def _live_tx_buffer(baud: int, payload: bytes) -> tuple[np.ndarray, ModemConfig]
     sr = config.waveform.sample_rate
     signal_seconds = len(samples) / sr
     pilot_each_side = max(
-        _LIVE_TX_PILOT_MIN_SECONDS,
-        (_LIVE_TX_MIN_SECONDS - signal_seconds) / 2.0,
-        _LIVE_TX_PILOT_MIN_SYMBOLS / config.waveform.baud,
+        LIVE_TX_PILOT_MIN_SECONDS,
+        (LIVE_TX_MIN_SECONDS - signal_seconds) / 2.0,
+        LIVE_TX_PILOT_MIN_SYMBOLS / config.waveform.baud,
     )
-    pilot = _pilot_signal(config, pilot_each_side).astype(np.float32)
+    pilot = pilot_signal(config, pilot_each_side).astype(np.float32)
     return np.concatenate([pilot, samples, pilot]).astype(np.float32), config
 
 

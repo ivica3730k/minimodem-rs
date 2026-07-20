@@ -14,8 +14,8 @@ import io
 
 import numpy as np
 
-from weaklink.modem._streaming import StreamingRxDecoder
 from weaklink.modem.codec import ModemConfig
+from weaklink.modem.streaming import StreamingRxDecoder
 
 
 def pump_decode(

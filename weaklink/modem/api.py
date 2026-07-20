@@ -23,24 +23,19 @@ from typing import Callable, Iterable, Iterator
 
 import numpy as np
 
-from weaklink.modem._streaming import (
-    StreamingRxDecoder,
-    hamlib_ptt as _hamlib_ptt_cm,
-    live_stream_decode as _live_stream_decode,
-    pilot_signal,
-)
-from weaklink.modem.codec import (
-    ModemConfig,
-    decode as _codec_decode,
-    encode as _codec_encode,
-    encode_stream as _codec_encode_stream,
-)
+from weaklink.modem.codec import ModemConfig, decode, encode, encode_stream
 from weaklink.modem.constants import (
     BAUD_PRESETS,
     LIVE_TX_PILOT_MIN_SECONDS,
     LIVE_TX_PILOT_MIN_SYMBOLS,
 )
 from weaklink.modem.exceptions import ConfigError
+from weaklink.modem.ptt import hamlib_ptt
+from weaklink.modem.streaming import (
+    StreamingRxDecoder,
+    live_stream_decode,
+    pilot_signal,
+)
 from weaklink.modem.waveform import WaveformConfig
 
 
@@ -142,7 +137,7 @@ def _tx_sample_iterator(config: ModemConfig, data: bytes | Iterable[bytes]) -> I
     else:
         chunks = data
     yield leading_pilot
-    for audio in _codec_encode_stream(iter(chunks), config):
+    for audio in encode_stream(iter(chunks), config):
         yield audio
     yield trailing_pilot
 
@@ -161,7 +156,7 @@ def tx(
     tx_volume: int = 100,
     wav: str | Path | None = None,
     audio_output: str | None = None,
-    hamlib_ptt: str | None = None,
+    ptt: str | None = None,
     tune: bool = False,
     logger: logging.Logger | None = None,
 ) -> np.ndarray | None:
@@ -176,13 +171,14 @@ def tx(
 
     ``audio_output`` accepts the same syntax as ``--modem-audio-output``:
     sounddevice index, name substring, Pulse sink name, ``pulse:<id>``,
-    or a bare numeric Pulse id resolvable by pactl. ``hamlib_ptt`` takes
-    the same ``host:port`` (or ``None`` to skip PTT) the CLI does.
+    or a bare numeric Pulse id resolvable by pactl. ``ptt`` takes the
+    same rigctld ``host:port`` (or ``None`` to skip PTT) that
+    ``--hamlib-ptt`` does.
     """
     if wav is not None and audio_output is not None:
         raise ConfigError("pass either wav= or audio_output=, not both")
-    if wav is not None and hamlib_ptt is not None:
-        raise ConfigError("hamlib_ptt is only valid with live audio TX; drop wav or hamlib_ptt")
+    if wav is not None and ptt is not None:
+        raise ConfigError("ptt is only valid with live audio TX; drop wav or ptt")
     if tune and wav is not None:
         raise ConfigError("tune=True is a live-audio-only operation; drop wav")
 
@@ -199,7 +195,7 @@ def tx(
     )
     with _routed_loggers(logger):
         if tune:
-            _tx_tune(config, audio_output=audio_output, hamlib_ptt=hamlib_ptt)
+            _tx_tune(config, audio_output=audio_output, ptt=ptt)
             return None
 
         if data is None:
@@ -214,7 +210,7 @@ def tx(
         if audio_output is not None:
             from weaklink.modem.audio import play_stream
 
-            with _hamlib_ptt_cm(hamlib_ptt):
+            with hamlib_ptt(ptt):
                 play_stream(
                     _tx_sample_iterator(config, data),
                     config.waveform.sample_rate,
@@ -224,14 +220,14 @@ def tx(
 
         # Batch: no sink chosen, return the encoded ndarray.
         payload = data if isinstance(data, (bytes, bytearray)) else b"".join(data)
-        return _codec_encode(bytes(payload), config)
+        return encode(bytes(payload), config)
 
 
 def _tx_tune(
     config: ModemConfig,
     *,
     audio_output: str | None,
-    hamlib_ptt: str | None,
+    ptt: str | None,
 ) -> None:
     """Emit every tone of the mode in round-robin, cycling until Ctrl-C."""
     from weaklink.modem.audio import play_stream
@@ -244,7 +240,7 @@ def _tx_tune(
             yield modulate(cycle_symbols, config.waveform).astype(np.float32)
 
     try:
-        with _hamlib_ptt_cm(hamlib_ptt):
+        with hamlib_ptt(ptt):
             play_stream(_cycles(), config.waveform.sample_rate, device=audio_output)
     except KeyboardInterrupt:
         pass
@@ -312,7 +308,7 @@ def rx(
         if samples is not None:
             if wav is not None or audio_input is not None:
                 raise ConfigError("pass at most one of samples=, wav=, audio_input=")
-            decoded = _codec_decode(samples, config)
+            decoded = decode(samples, config)
             if on_bytes and decoded:
                 on_bytes(bytes(decoded))
             return decoded
@@ -324,7 +320,7 @@ def rx(
 
         if audio_input is not None:
             sink = _CallbackWriter(on_bytes) if on_bytes is not None else sys.stdout.buffer
-            _live_stream_decode(config, audio_input=audio_input, output=sink)
+            live_stream_decode(config, audio_input=audio_input, output=sink)
             return None
 
         raise ConfigError("rx() requires one of samples=, wav=, audio_input=")

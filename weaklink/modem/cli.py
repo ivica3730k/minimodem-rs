@@ -11,7 +11,9 @@ import sys
 from pathlib import Path
 from typing import Iterable, Sequence
 
-from weaklink.modem.api import ModemOptions, rx as _rx_api, tx as _tx_api
+from weaklink.modem.api import ModemOptions
+from weaklink.modem.api import rx as _rx_api
+from weaklink.modem.api import tx as _tx_api
 from weaklink.modem.constants import BAUD_PRESETS, DEFAULT_LOG_PATH
 from weaklink.modem.exceptions import WeaklinkError
 
@@ -203,7 +205,7 @@ def _run_tx(args: argparse.Namespace) -> int:
             sync_every_blocks=o.sync_every_blocks,
             tx_volume=args.modem_tx_volume,
             audio_output=audio_output,
-            hamlib_ptt=args.hamlib_ptt,
+            ptt=args.hamlib_ptt,
             tune=True,
         )
     elif args.modem_wav is not None:
@@ -231,7 +233,7 @@ def _run_tx(args: argparse.Namespace) -> int:
             sync_every_blocks=o.sync_every_blocks,
             tx_volume=args.modem_tx_volume,
             audio_output=audio_output,
-            hamlib_ptt=args.hamlib_ptt,
+            ptt=args.hamlib_ptt,
         )
     return 0
 

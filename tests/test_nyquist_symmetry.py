@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import pytest
 
-from weaklink.modem.codec import ModemConfig, decode, encode
+from weaklink.modem.codec import ModemConfig
 from weaklink.modem.exceptions import NyquistError
 from weaklink.modem.waveform import WaveformConfig
 

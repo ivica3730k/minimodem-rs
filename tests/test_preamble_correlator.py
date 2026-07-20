@@ -10,8 +10,8 @@ import numpy as np
 import pytest
 
 from weaklink.modem.codec import (
-    ModemConfig,
     PREAMBLE_SYMBOLS,
+    ModemConfig,
     _find_preamble_peaks,
     decode,
     encode,
@@ -80,7 +80,7 @@ def test_decode_under_10db_slow_fading(baud: int) -> None:
         45:  dict(rs_data_bytes=32, rs_parity_bytes=8, block_repeats=2, sync_every_blocks=4),
         300: dict(rs_data_bytes=16, rs_parity_bytes=8, block_repeats=1, sync_every_blocks=4),
     }
-    from weaklink.modem.codec import encode, decode
+    from weaklink.modem.codec import decode, encode
 
     config = ModemConfig(
         waveform=WaveformConfig(baud=float(baud), tone_spacing_hz=float(baud)),

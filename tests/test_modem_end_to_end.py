@@ -2,20 +2,17 @@
 
 from __future__ import annotations
 
+import io
 import random
 import string
 from dataclasses import dataclass
 from pathlib import Path
 
-import io
-
 import numpy as np
-import pytest
 
 from weaklink.modem.audio import read_wav, write_wav
 from weaklink.modem.cli import main as modem_main
 from weaklink.modem.codec import ModemConfig, decode, encode
-from weaklink.modem.waveform import WaveformConfig
 
 from ._streaming import pump_decode
 

@@ -12,9 +12,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from weaklink.modem._streaming import StreamingRxDecoder as _StreamingRxDecoder
 from weaklink.modem.api import BAUD_PRESETS
 from weaklink.modem.codec import ModemConfig, encode
+from weaklink.modem.streaming import StreamingRxDecoder as _StreamingRxDecoder
 from weaklink.modem.waveform import WaveformConfig
 
 
