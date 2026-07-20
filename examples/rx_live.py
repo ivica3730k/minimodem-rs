@@ -9,11 +9,9 @@ from __future__ import annotations
 
 import sys
 
-from weaklink.modem import rx
+from weaklink.modem import ModemOptions, rx
 
 AUDIO_INPUT = ""             # "" = OS default; "virt.monitor" / "pulse:47" / "5" / etc.
-BAUD = 300.0
-NUM_TONES = 4
 
 
 def on_bytes(data: bytes) -> None:
@@ -22,8 +20,7 @@ def on_bytes(data: bytes) -> None:
 
 
 rx(
-    baud=BAUD,
-    num_tones=NUM_TONES,
+    options=ModemOptions(baud=300, num_tones=4),
     audio_input=AUDIO_INPUT,
     on_bytes=on_bytes,
 )

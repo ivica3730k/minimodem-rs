@@ -13,6 +13,7 @@ import pytest
 from weaklink.modem import (
     BAUD_PRESETS,
     ConfigError,
+    ModemOptions,
     NyquistError,
     WeaklinkError,
     build_config,
@@ -23,15 +24,15 @@ from weaklink.modem import (
 
 def test_bytes_in_bytes_out_roundtrip() -> None:
     payload = b"weaklink public API roundtrip"
-    audio = tx(payload, baud=300)
+    opts = ModemOptions(baud=300)
+    audio = tx(payload, opts)
     assert audio.dtype == np.float32
     assert audio.ndim == 1
-    assert rx(audio, baud=300) == payload
+    assert rx(audio, opts) == payload
 
 
 def test_preset_defaults_land() -> None:
-    # tx/rx without any knobs should use the 300-baud preset.
-    cfg = build_config(baud=300)
+    cfg = build_config(ModemOptions(baud=300))
     assert cfg.rs_data_bytes == int(BAUD_PRESETS[300.0]["rs_data_bytes"])
     assert cfg.block_repeats == int(BAUD_PRESETS[300.0]["block_repeats"])
     assert cfg.waveform.tone_spacing_hz == BAUD_PRESETS[300.0]["tone_spacing_hz"]
@@ -39,36 +40,30 @@ def test_preset_defaults_land() -> None:
 
 def test_tx_volume_scales_peak_amplitude() -> None:
     payload = b"loud vs quiet"
-    loud = tx(payload, baud=300, tx_volume=100)
-    quiet = tx(payload, baud=300, tx_volume=25)
-    # Peaks scale linearly with tx_volume.
+    opts = ModemOptions(baud=300)
+    loud = tx(payload, opts, tx_volume=100)
+    quiet = tx(payload, opts, tx_volume=25)
     assert abs(float(np.max(np.abs(loud))) - 1.0) < 0.01
     assert abs(float(np.max(np.abs(quiet))) - 0.25) < 0.01
 
 
 def test_unsupported_baud_raises_config_error() -> None:
     with pytest.raises(ConfigError):
-        tx(b"x", baud=888)
+        tx(b"x", ModemOptions(baud=888))
 
 
 def test_infeasible_num_tones_raises_nyquist_error() -> None:
     # 16 tones at 1200 baud puts the top tone above Nyquist.
     with pytest.raises(NyquistError):
-        tx(b"x", baud=1200, num_tones=16)
+        tx(b"x", ModemOptions(baud=1200, num_tones=16))
 
 
 def test_all_exceptions_share_weaklink_base() -> None:
-    # Callers can catch WeaklinkError and get everything.
-    try:
-        tx(b"x", baud=888)
-    except WeaklinkError:
-        return
-    pytest.fail("expected WeaklinkError subclass")
+    with pytest.raises(WeaklinkError):
+        tx(b"x", ModemOptions(baud=888))
 
 
 def test_logger_injection_routes_weaklink_records() -> None:
-    # Attach a capture handler to the caller's logger and confirm the
-    # weaklink.* loggers actually reach it during the call.
     captured: list[logging.LogRecord] = []
 
     class _Capture(logging.Handler):
@@ -80,8 +75,9 @@ def test_logger_injection_routes_weaklink_records() -> None:
     handler = _Capture()
     logger.addHandler(handler)
     try:
-        audio = tx(b"logger-injection test", baud=300, logger=logger)
-        rx(audio, baud=300, logger=logger)
+        opts = ModemOptions(baud=300)
+        audio = tx(b"logger-injection test", opts, logger=logger)
+        rx(audio, opts, logger=logger)
     finally:
         logger.removeHandler(handler)
     assert captured, "expected weaklink diagnostics to route through injected logger"

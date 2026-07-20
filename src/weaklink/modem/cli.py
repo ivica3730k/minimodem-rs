@@ -13,9 +13,7 @@ from importlib.metadata import version as _pkg_version
 from pathlib import Path
 from typing import Iterable, Sequence
 
-from weaklink.modem.api import ModemOptions
-from weaklink.modem.api import rx as _rx_api
-from weaklink.modem.api import tx as _tx_api
+from weaklink.modem.api import ModemOptions, rx, tx
 from weaklink.modem.constants import BAUD_PRESETS, DEFAULT_LOG_PATH
 from weaklink.modem.exceptions import WeaklinkError
 
@@ -192,81 +190,27 @@ def _stdin_chunks() -> Iterable[bytes]:
 
 
 def _run_tx(args: argparse.Namespace) -> int:
-    o = _options_from_args(args)
+    opts = _options_from_args(args)
+    volume = args.modem_tx_volume
     audio_output = args.modem_audio_output or ""
     if args.modem_tune:
-        _tx_api(
-            data=None,
-            baud=o.baud,
-            num_tones=o.num_tones,
-            rs_data_bytes=o.rs_data_bytes,
-            rs_parity_bytes=o.rs_parity_bytes,
-            rs_crc_enabled=o.rs_crc_enabled,
-            block_repeats=o.block_repeats,
-            sync_every_blocks=o.sync_every_blocks,
-            tx_volume=args.modem_tx_volume,
-            audio_output=audio_output,
-            ptt=args.hamlib_ptt,
-            tune=True,
-        )
+        tx(None, opts, tx_volume=volume, audio_output=audio_output, ptt=args.hamlib_ptt, tune=True)
     elif args.modem_wav is not None:
-        _tx_api(
-            _stdin_chunks(),
-            baud=o.baud,
-            num_tones=o.num_tones,
-            rs_data_bytes=o.rs_data_bytes,
-            rs_parity_bytes=o.rs_parity_bytes,
-            rs_crc_enabled=o.rs_crc_enabled,
-            block_repeats=o.block_repeats,
-            sync_every_blocks=o.sync_every_blocks,
-            tx_volume=args.modem_tx_volume,
-            wav=args.modem_wav,
-        )
+        tx(_stdin_chunks(), opts, tx_volume=volume, wav=args.modem_wav)
     else:
-        _tx_api(
-            _stdin_chunks(),
-            baud=o.baud,
-            num_tones=o.num_tones,
-            rs_data_bytes=o.rs_data_bytes,
-            rs_parity_bytes=o.rs_parity_bytes,
-            rs_crc_enabled=o.rs_crc_enabled,
-            block_repeats=o.block_repeats,
-            sync_every_blocks=o.sync_every_blocks,
-            tx_volume=args.modem_tx_volume,
-            audio_output=audio_output,
-            ptt=args.hamlib_ptt,
-        )
+        tx(_stdin_chunks(), opts, tx_volume=volume, audio_output=audio_output, ptt=args.hamlib_ptt)
     return 0
 
 
 def _run_rx(args: argparse.Namespace) -> int:
-    o = _options_from_args(args)
+    opts = _options_from_args(args)
     if args.modem_wav is not None:
-        _rx_api(
-            baud=o.baud,
-            num_tones=o.num_tones,
-            rs_data_bytes=o.rs_data_bytes,
-            rs_parity_bytes=o.rs_parity_bytes,
-            rs_crc_enabled=o.rs_crc_enabled,
-            block_repeats=o.block_repeats,
-            sync_every_blocks=o.sync_every_blocks,
-            wav=args.modem_wav,
-            on_bytes=sys.stdout.buffer.write,
-        )
+        rx(options=opts, wav=args.modem_wav, on_bytes=sys.stdout.buffer.write)
         sys.stdout.buffer.flush()
     else:
         # PULSE_SOURCE env-var fallback matches the previous CLI default.
         hint = args.modem_audio_input if args.modem_audio_input else os.environ.get("PULSE_SOURCE", "")
-        _rx_api(
-            baud=o.baud,
-            num_tones=o.num_tones,
-            rs_data_bytes=o.rs_data_bytes,
-            rs_parity_bytes=o.rs_parity_bytes,
-            rs_crc_enabled=o.rs_crc_enabled,
-            block_repeats=o.block_repeats,
-            sync_every_blocks=o.sync_every_blocks,
-            audio_input=hint,
-        )
+        rx(options=opts, audio_input=hint)
     return 0
 
 

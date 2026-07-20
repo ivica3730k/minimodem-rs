@@ -6,21 +6,17 @@ Adjust the constants below to match your setup, then run:
 
 from __future__ import annotations
 
-from weaklink.modem import tx
+from weaklink.modem import ModemOptions, tx
 
 PAYLOAD = b"hello over the air"
 AUDIO_OUTPUT = ""            # "" = OS default; "USB" / "pulse:47" / "5" / etc.
 HAMLIB_PTT = None            # None = no PTT; "localhost:4532" = rigctld default.
-BAUD = 300.0
-NUM_TONES = 4
 TX_VOLUME = 100              # 0-100.
-
 
 tx(
     PAYLOAD,
-    baud=BAUD,
-    num_tones=NUM_TONES,
+    ModemOptions(baud=300, num_tones=4),
     tx_volume=TX_VOLUME,
     audio_output=AUDIO_OUTPUT,
-    hamlib_ptt=HAMLIB_PTT,
+    ptt=HAMLIB_PTT,
 )
