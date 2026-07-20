@@ -20,6 +20,7 @@ pytest = "9.0.3"
 mypy = "^2.1.0"
 pylint = "^4.0.5"
 setuptools = "82.0.1"
+pytest-xdist = "^3.8.0"
 
 [tool.poetry.scripts]
 weaklink-9a3ice = "weaklink.modem.cli:main"
@@ -42,6 +43,9 @@ exclude = '''
   | dist
 )/
 '''
+
+[tool.pytest.ini_options]
+addopts = "-n auto"
 
 [tool.isort]
 profile = "black"
