@@ -699,17 +699,11 @@ def _find_preamble_peaks(
         return []
     peak_score = float(scores.max())
 
-    # Robust noise floor from a lower quantile of the score distribution.
-    # For M-FSK, partial preamble matches near the true alignment pull the
-    # score distribution up in proportion to 1/M -- the noise-only region
-    # is roughly the bottom (2/M) of scores. Match the quantile to M so
-    # the "noise pool" excludes near-match contamination cleanly.
-    #   M=2 -> Q0.25, M=4 -> Q0.5, M=8 -> Q0.75, M=16 -> Q0.875,
-    #   M=32 -> Q0.9375, M=64 -> Q0.96875.
-    num_tones = magnitudes.shape[1]
+    # Noise floor: bottom (2/M) of scores (adaptive quantile).
+    # At M=2 sidelobes fill the lower half, so we go lower (Q0.25).
+    # At higher M sidelobes are tighter and the lower half is fine.
     q = max(0.25, 1.0 - 2.0 / num_tones)
-    boundary = float(np.quantile(scores, q))
-    noise_pool = scores[scores <= boundary]
+    noise_pool = scores[scores <= float(np.quantile(scores, q))]
     if noise_pool.size < 4:
         return []
     noise_centre = float(np.median(noise_pool))
@@ -720,22 +714,23 @@ def _find_preamble_peaks(
     if peak_score < noise_centre + 6.0 * noise_sigma:
         return []
 
-    # Candidate threshold: sigma-based floor plus a peak-relative floor
-    # scaled to the tone count. For low-M (especially 2-FSK), partial
-    # preamble matches against random-looking block content score up to
-    # ~0.6 of a full match -- not from Gaussian noise but from the
-    # pattern-vs-data correlation. At high SNR the sigma-only threshold
-    # collapses toward zero and those sidelobes slip through, producing
-    # spurious mid-message peaks that confuse the boundary detector.
-    # Real preambles score ~1.0 at any SNR (amplitude-normalised);
-    # partial-match sidelobes score < 1 - 2/M. Set the peak-relative
-    # floor above that ceiling: 1 - 1/M. For M=2 that's 0.5 -> use 0.8
-    # (we need to clear observed sidelobes at ~0.6); for M=4+ the
-    # sidelobes drop fast so 0.5 * peak keeps ample margin.
-    peak_relative = 0.8 if num_tones == 2 else 0.5
+    # Sidelobe-based threshold. In the noise-only limit, correlator
+    # scores at wrong alignments are ~Gaussian with std
+    # ``1 / sqrt((M-1) * L)`` (M tones, L-symbol preamble). Expected
+    # max of N such samples ≈ std * sqrt(2 * ln N). We scale that by
+    # ``peak_score`` (amplitude-normalisation aside, peak is our
+    # observed 1.0 reference). ``max(sigma-based, sidelobe-based)``
+    # covers low-SNR (Gaussian noise dominates) and high-SNR (pattern-
+    # vs-data sidelobes dominate) regimes without any M-specific
+    # magic constants.
+    import math
+    n_positions = max(scores.size, 2)
+    sidelobe_max = math.sqrt(2.0 * math.log(n_positions)) / math.sqrt(
+        max(1, num_tones - 1) * preamble_length
+    )
     candidate_threshold = max(
         noise_centre + 5.0 * noise_sigma,
-        peak_relative * peak_score,
+        sidelobe_max * peak_score,
     )
 
     peaks: list[int] = []
