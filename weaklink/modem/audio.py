@@ -13,7 +13,7 @@ import subprocess
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Iterator
 
 import numpy as np
 import sounddevice
@@ -66,7 +66,7 @@ def read_wav_chunks(
     *,
     chunk_seconds: float = 0.1,
     expected_sample_rate: float | None = None,
-):
+) -> Iterator[np.ndarray]:
     """Streaming source: yield float32 mono sample chunks from a WAV.
     Mirrors :class:`LiveInputStream`'s callback signature (chunks land
     at ~``chunk_seconds`` cadence, like a live audio poll), so rx code

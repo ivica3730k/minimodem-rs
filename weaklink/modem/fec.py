@@ -139,7 +139,7 @@ def decode(soft_bits: np.ndarray, num_output_bits: int) -> bytes:
 _PREDECESSOR_TABLE: tuple[tuple[tuple[int, int], tuple[int, int]], ...] | None = None
 
 
-def _build_predecessor_table():
+def _build_predecessor_table() -> list[list[tuple[int, int]]]:
     """For each destination state, list the two (prev_state, input_bit) predecessors."""
     global _PREDECESSOR_TABLE
     if _PREDECESSOR_TABLE is not None:
