@@ -1,58 +1,51 @@
-"""Record from the default audio input for a fixed duration and
-decode whatever weaklink signal is in there.
+"""Stream from a live audio input, decode continuously, print bytes
+as they arrive. Ctrl-C stops it. Mirrors ``weaklink-modem rx`` exactly.
 
 Run:
-    python examples/rx_live.py
-
-Continuous streaming decode (poll-and-emit) isn't exposed as a public
-API yet -- for that use the CLI (`weaklink-modem rx`). This example
-shows the "record a window then batch-decode" pattern which is often
-enough for a single message.
+    python examples/rx_live.py                    # OS default input
+    python examples/rx_live.py -i virt.monitor    # Pulse source name
+    python examples/rx_live.py -i pulse:47        # Pulse source by id
+    python examples/rx_live.py -i 5               # sounddevice index
 """
 
 from __future__ import annotations
 
+import argparse
 import logging
 import sys
-
-import numpy as np
-import sounddevice as sd
 
 from weaklink.modem import rx
 
 
 def main() -> None:
-    sample_rate = 18_000  # weaklink's internal rate
-    record_seconds = 30
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("-i", "--input", help="Audio input device (any syntax the CLI accepts)")
+    parser.add_argument("--baud", type=float, default=300.0)
+    parser.add_argument("--num-tones", type=int, default=4)
+    parser.add_argument("--verbose", action="store_true",
+                        help="Print weaklink diagnostics (peak/rms, decode outcomes) to stderr.")
+    args = parser.parse_args()
 
-    # Route weaklink diagnostics through our own logger so we see peak /
-    # rms snapshots, coarse offset, per-slot decode outcomes.
-    logger = logging.getLogger("example.rx")
-    handler = logging.StreamHandler(sys.stderr)
-    handler.setFormatter(logging.Formatter("[%(name)s %(levelname)s] %(message)s"))
-    logger.addHandler(handler)
-    logger.setLevel(logging.INFO)
+    logger: logging.Logger | None = None
+    if args.verbose:
+        logger = logging.getLogger("example.rx")
+        h = logging.StreamHandler(sys.stderr)
+        h.setFormatter(logging.Formatter("[%(name)s %(levelname)s] %(message)s"))
+        logger.addHandler(h)
+        logger.setLevel(logging.INFO)
 
-    print(f"recording {record_seconds} s at {sample_rate} Hz... (Ctrl-C to stop early)")
-    try:
-        audio = sd.rec(
-            int(record_seconds * sample_rate),
-            samplerate=sample_rate,
-            channels=1,
-            dtype="float32",
-        )
-        sd.wait()
-    except KeyboardInterrupt:
-        sd.stop()
-        print("stopped early")
-        return
+    def _on_bytes(data: bytes) -> None:
+        sys.stdout.buffer.write(data)
+        sys.stdout.buffer.flush()
 
-    audio = np.asarray(audio, dtype=np.float32).reshape(-1)
-    payload = rx(audio, baud=300, num_tones=4, logger=logger)
-    if payload:
-        print(f"decoded {len(payload)} bytes: {payload!r}")
-    else:
-        print("no signal decoded (silence, wrong baud, or audio path issue)")
+    rx(
+        baud=args.baud,
+        num_tones=args.num_tones,
+        # Empty string = OS default input; string = specific device.
+        audio_input=args.input if args.input is not None else "",
+        on_bytes=_on_bytes,
+        logger=logger,
+    )
 
 
 if __name__ == "__main__":
