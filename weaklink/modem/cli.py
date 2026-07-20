@@ -8,6 +8,8 @@ import argparse
 import logging
 import os
 import sys
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _pkg_version
 from pathlib import Path
 from typing import Iterable, Sequence
 
@@ -123,9 +125,8 @@ def _add_modem_args(sub: argparse.ArgumentParser) -> None:
 
 def _build_parser() -> argparse.ArgumentParser:
     try:
-        from importlib.metadata import version as _pkg_version
         version = _pkg_version("weaklink-modem")
-    except Exception:
+    except PackageNotFoundError:
         version = "unknown"
 
     parser = argparse.ArgumentParser(prog="weaklink-modem", description="Streaming N-FSK modem.")

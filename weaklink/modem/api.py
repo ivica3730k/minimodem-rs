@@ -23,6 +23,7 @@ from typing import Callable, Iterable, Iterator
 
 import numpy as np
 
+from weaklink.modem.audio import play_stream, read_wav_chunks, write_wav_stream
 from weaklink.modem.codec import ModemConfig, decode, encode, encode_stream
 from weaklink.modem.constants import (
     BAUD_PRESETS,
@@ -36,7 +37,7 @@ from weaklink.modem.streaming import (
     live_stream_decode,
     pilot_signal,
 )
-from weaklink.modem.waveform import WaveformConfig
+from weaklink.modem.waveform import WaveformConfig, modulate
 
 
 @dataclass(frozen=True)
@@ -202,14 +203,10 @@ def tx(
             raise ConfigError("data= is required unless tune=True")
 
         if wav is not None:
-            from weaklink.modem.audio import write_wav_stream
-
             write_wav_stream(str(wav), _tx_sample_iterator(config, data), config.waveform.sample_rate)
             return None
 
         if audio_output is not None:
-            from weaklink.modem.audio import play_stream
-
             with hamlib_ptt(ptt):
                 play_stream(
                     _tx_sample_iterator(config, data),
@@ -230,9 +227,6 @@ def _tx_tune(
     ptt: str | None,
 ) -> None:
     """Emit every tone of the mode in round-robin, cycling until Ctrl-C."""
-    from weaklink.modem.audio import play_stream
-    from weaklink.modem.waveform import modulate
-
     cycle_symbols = np.arange(config.waveform.num_tones, dtype=np.int64)
 
     def _cycles() -> Iterator[np.ndarray]:
@@ -334,8 +328,6 @@ def _rx_from_wav(
 ) -> bytes:
     """WAV read -> streaming pump -> bytes. Also feeds each chunk to
     ``on_bytes`` as it lands so callers get incremental output."""
-    from weaklink.modem.audio import read_wav_chunks
-
     collected = bytearray()
 
     def _emit(data: bytes) -> None:

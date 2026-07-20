@@ -7,6 +7,7 @@ Message boundaries fall on non-block-length spans between preambles.
 from __future__ import annotations
 
 import functools
+import math
 from dataclasses import dataclass, field
 from typing import Iterable, Iterator
 
@@ -796,7 +797,6 @@ def _find_preamble_peaks(
     # covers low-SNR (Gaussian noise dominates) and high-SNR (pattern-
     # vs-data sidelobes dominate) regimes without any M-specific
     # magic constants.
-    import math
     n_positions = max(scores.size, 2)
     sidelobe_max = math.sqrt(2.0 * math.log(n_positions)) / math.sqrt(
         max(1, num_tones - 1) * preamble_length

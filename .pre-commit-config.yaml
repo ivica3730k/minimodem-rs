@@ -7,8 +7,9 @@ repos:
     rev: v0.15.22
     hooks:
       - id: ruff
-        # Auto-fix unused imports (F401) and import ordering (I001).
-        args: [--fix, --select=F401,I001, weaklink, tests, examples, scripts]
+        # Full pyflakes (F) catches undefined names, unused imports/vars,
+        # etc.; I001 keeps import blocks sorted.
+        args: [--fix, --select=F,I001, weaklink, tests, examples, scripts]
         pass_filenames: false
 
   - repo: https://github.com/psf/black

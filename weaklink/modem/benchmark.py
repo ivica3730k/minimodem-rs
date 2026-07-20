@@ -16,9 +16,11 @@ from __future__ import annotations
 
 import argparse
 import math
+import os
 import random
 import string
 import time
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -250,9 +252,6 @@ def _run_one(bundle: tuple[Config, int]) -> Result:
 
 
 def main(argv: list[str] | None = None) -> int:
-    import os
-    from concurrent.futures import ProcessPoolExecutor
-
     parser = argparse.ArgumentParser(prog="weaklink-benchmark")
     parser.add_argument("--trials", type=int, default=5)
     parser.add_argument("--dry-run", action="store_true")

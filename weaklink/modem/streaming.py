@@ -6,14 +6,17 @@ PTT lives in :mod:`weaklink.modem.ptt`.
 from __future__ import annotations
 
 import logging
+import time
 
 import numpy as np
 
-from weaklink.modem.codec import ModemConfig, decode
+from weaklink.modem.audio import LiveInputStream, resolve_audio_target
+from weaklink.modem.codec import ModemConfig, _block_symbol_length, decode
 from weaklink.modem.constants import (
     LIVE_RX_POLL_MS,
     LIVE_RX_SNAPSHOT_EVERY_POLLS,
 )
+from weaklink.modem.waveform import modulate
 
 _log = logging.getLogger("weaklink.streaming")
 
@@ -21,8 +24,6 @@ _log = logging.getLogger("weaklink.streaming")
 def pilot_signal(config: ModemConfig, duration_seconds: float) -> np.ndarray:
     """Random N-FSK symbols for ``duration_seconds``. All tones exercised
     uniformly so the coarse-offset FFT locks cleanly."""
-    from weaklink.modem.waveform import modulate
-
     symbols_needed = max(1, int(round(duration_seconds * config.waveform.baud)))
     rng = np.random.default_rng(0xC0DE)
     symbols = rng.integers(0, config.waveform.num_tones, size=symbols_needed, dtype=np.int64)
@@ -35,8 +36,6 @@ class StreamingRxDecoder:
     and stdout-like ``output`` receives decoded bytes."""
 
     def __init__(self, config: ModemConfig, output) -> None:
-        from weaklink.modem.codec import _block_symbol_length  # noqa: WPS433
-
         self.config = config
         self.output = output
         self.sample_rate = int(round(config.waveform.sample_rate))
@@ -182,8 +181,6 @@ def live_stream_decode(
     """Live streaming decode loop. Blocks until KeyboardInterrupt.
     Decoded bytes go to ``output`` (any object with ``.write(bytes)``
     and ``.flush()``)."""
-    from weaklink.modem.audio import LiveInputStream, resolve_audio_target
-
     target = resolve_audio_target(audio_input, kind="input")
     if audio_input:
         _log.debug("audio input hint %r -> %s", audio_input, target.describe())

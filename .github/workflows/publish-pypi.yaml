@@ -34,10 +34,6 @@ jobs:
         run: poetry build
 
       - name: Publish to PyPI
-        # Gated: the workflow stays syntax-valid and runs the build on
-        # every release, but the upload step no-ops until PYPI_TOKEN is
-        # actually set in repo secrets. Flip on by adding the secret.
-        if: ${{ secrets.PYPI_TOKEN != '' }}
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           password: ${{ secrets.PYPI_TOKEN }}

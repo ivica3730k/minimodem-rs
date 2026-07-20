@@ -71,7 +71,9 @@ line-length = 120
 target-version = "py312"
 
 [tool.ruff.lint]
-select = ["F401", "I001"]
+# F = pyflakes (unused imports F401, undefined names F821, unused vars, ...)
+# I = isort-compatible import ordering
+select = ["F", "I001"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["weaklink"]

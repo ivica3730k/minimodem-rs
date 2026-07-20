@@ -1,7 +1,7 @@
 """Audio I/O. WAV via soundfile; live via sounddevice or ``paplay`` /
 ``parec`` subprocess for named Pulse endpoints (PortAudio's Pulse compat
 ignores ``PULSE_*``). Device hints: integer index, name substring, or
-Pulse sink/source. Deps loaded lazily so DSP-only tests need no audio server.
+Pulse sink/source.
 """
 
 from __future__ import annotations
@@ -13,9 +13,11 @@ import subprocess
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Callable
 
 import numpy as np
+import sounddevice
+import soundfile
 
 from weaklink.modem.exceptions import ConfigError
 
@@ -24,7 +26,6 @@ _log = logging.getLogger("weaklink.audio")
 
 def write_wav(path: Path | str, samples: np.ndarray, sample_rate: float) -> None:
     """Write float32 mono samples to a WAV file."""
-    import soundfile
 
     soundfile.write(str(path), np.asarray(samples, dtype=np.float32), int(round(sample_rate)))
 
@@ -34,7 +35,6 @@ def write_wav_stream(path: Path | str, sample_chunks, sample_rate: float) -> Non
     append them to a WAV file. Same shape as :func:`play_stream` -- WAV
     output is just another sink at the end of the sample-chunk chain, so
     tx code paths don't branch on target."""
-    import soundfile
 
     rate = int(round(sample_rate))
     with soundfile.SoundFile(
@@ -50,7 +50,6 @@ def read_wav(path: Path | str, *, expected_sample_rate: float | None = None) -> 
     Returns ``(samples_float32, sample_rate)``. Raises if
     ``expected_sample_rate`` is given and doesn't match.
     """
-    import soundfile
 
     data, sample_rate = soundfile.read(str(path), dtype="float32", always_2d=False)
     if data.ndim > 1:
@@ -72,7 +71,6 @@ def read_wav_chunks(
     Mirrors :class:`LiveInputStream`'s callback signature (chunks land
     at ~``chunk_seconds`` cadence, like a live audio poll), so rx code
     paths don't branch on WAV vs live."""
-    import soundfile
 
     with soundfile.SoundFile(str(path)) as sf:
         if expected_sample_rate is not None and int(round(expected_sample_rate)) != sf.samplerate:
@@ -168,7 +166,7 @@ def resolve_audio_target(name_hint: str | None, *, kind: str) -> AudioTarget:
             return AudioTarget(pulse_name=resolved)
         return AudioTarget(sd_index=int(name_hint))
 
-    sd = _import_sounddevice()
+    sd = sounddevice
     channel_attr = "max_input_channels" if kind == "input" else "max_output_channels"
     try:
         devices = sd.query_devices()
@@ -217,7 +215,7 @@ def play(samples: np.ndarray, sample_rate: float, *, device: str | None = None) 
         _play_pulse(samples_f32, rate, target.pulse_name)
         return
 
-    sd = _import_sounddevice()
+    sd = sounddevice
     sd.play(samples_f32, rate, device=target.sd_index, blocking=True)
     sd.wait()
 
@@ -258,7 +256,7 @@ def play_stream(
     if target.pulse_name is not None:
         _play_pulse_stream(sample_chunks, rate, target.pulse_name)
         return
-    sd = _import_sounddevice()
+    sd = sounddevice
     stream = sd.OutputStream(
         samplerate=rate,
         channels=1,
@@ -349,7 +347,7 @@ class LiveInputStream:
                 pass
 
     def _open_sounddevice(self) -> None:
-        sd = _import_sounddevice()
+        sd = sounddevice
 
         def _sd_callback(indata: np.ndarray, _frames: int, _time: object, _status: object) -> None:
             self._callback(indata.reshape(-1).astype(np.float32, copy=False))
@@ -394,12 +392,3 @@ class LiveInputStream:
         self._thread.start()
 
 
-def _import_sounddevice() -> Any:
-    try:
-        import sounddevice  # noqa: WPS433 - deferred import is intentional
-    except ImportError as exc:
-        raise ImportError(
-            "sounddevice is required for live audio I/O. Install with `pip install sounddevice` "
-            "or (on Debian/Ubuntu) `sudo apt install libportaudio2` first."
-        ) from exc
-    return sounddevice
