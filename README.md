@@ -1,7 +1,10 @@
 # weaklink
 
 Streaming digital modem: bytes on stdin → audio → bytes on stdout. Works
-with `tail -f`; no memory buffering, no wait-for-EOF.
+with `tail -f`; no memory buffering, no wait-for-EOF. RS + convolutional
++ soft Viterbi outer/inner coding, per-block interleaver, cross-copy
+soft-LLR combining. Modes: **OOK (1-tone)** through **16-FSK**, at
+**45 / 300 / 1200 baud**.
 
 ![alt text](image.png)
 
@@ -66,8 +69,10 @@ The three baud rates below are **presets** — starting points, not
 fixed configurations. Every preset carries 13 B of payload per RS
 block (RS(16,8) + CRC-32) by default, so message sizes and per-block
 air time in the table are what you get if you don't override anything.
+Preset defaults use 4-FSK; every other mode (`--modem-num-tones` ∈
+{1, 2, 4, 8, 16}, OOK through 16-FSK) is available at any baud.
 
-Every knob shown is overridable on both sides via CLI flags
+Every parameter shown is overridable on both sides via CLI flags
 (`--modem-num-tones`, `--modem-rs-data-bytes`, `--modem-rs-parity-bytes`,
 `--modem-block-repeats`, ...), or via `ModemOptions` in the Python
 API. Changing them shifts the numbers in the table proportionally --
@@ -86,6 +91,18 @@ cross-baud comparison convention, not a physical channel filter.
 Doubling `--modem-block-repeats` buys ~2–3 dB via soft-LLR combining
 at proportional air time. Full sweep of every combo we test is in
 [`results.md`](results.md).
+
+### OOK / 1-tone mode
+
+`--modem-num-tones 1` selects on-off keying: single carrier at
+`center_hz`, symbol 0 = silence, symbol 1 = tone. Narrowest possible
+bandwidth of any mode (no tone stack — just the carrier and its
+modulation sidelobes) and Class-E-amp friendly since the amp only
+sees on/off and never has to be linear. Same 1 bit/symbol as 2-FSK
+but a few dB worse in AWGN — the trade you make for the narrow
+spectrum. Cliff at 45 baud with `block_repeats=4`: ≈ −14 dB, matching
+4-FSK at the same settings. See [`results.md`](results.md) for the
+per-baud numbers.
 
 ---
 
@@ -215,6 +232,7 @@ through the same `_StreamingRxPump` the CLI uses.
 ## Glossary
 
 - **N-FSK / CPFSK** — N continuous-phase tones, log₂(N) bits per symbol. Default N=4.
+- **OOK** — On-off keying. `num_tones=1` mode: single carrier, symbol 0 = silence, symbol 1 = tone. 1 bit/symbol like 2-FSK but at the narrowest possible bandwidth (only the carrier + modulation sidelobes). Class-E-amp friendly (no linearity requirement). Pays a few dB vs 2-FSK in AWGN.
 - **Preamble** — Fixed 32-symbol PN sequence bracketing every slot; RX locks timing / frequency / amplitude from it.
 - **Slot** — Preamble + one RS-encoded block.
 - **Block** — RS-encoded chunk carrying header + payload.

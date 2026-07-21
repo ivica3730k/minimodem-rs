@@ -217,6 +217,7 @@ through the same `_StreamingRxPump` the CLI uses.
 ## Glossary
 
 - **N-FSK / CPFSK** — N continuous-phase tones, log₂(N) bits per symbol. Default N=4.
+- **OOK** — On-off keying. `num_tones=1` mode: single carrier, symbol 0 = silence, symbol 1 = tone. 1 bit/symbol like 2-FSK but at the narrowest possible bandwidth (only the carrier + modulation sidelobes). Class-E-amp friendly (no linearity requirement). Pays a few dB vs 2-FSK in AWGN.
 - **Preamble** — Fixed 32-symbol PN sequence bracketing every slot; RX locks timing / frequency / amplitude from it.
 - **Slot** — Preamble + one RS-encoded block.
 - **Block** — RS-encoded chunk carrying header + payload.

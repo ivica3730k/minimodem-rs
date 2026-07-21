@@ -26,6 +26,8 @@ from weaklink.modem.interleaver import (
 from weaklink.modem.rs import BlockConfig, RSBlockCodec
 from weaklink.modem.waveform import (
     WaveformConfig,
+    _bits_per_symbol,
+    _num_symbols,
     bits_to_symbols,
     demodulate_soft,
     estimate_coarse_frequency_offset,
@@ -54,10 +56,11 @@ PREAMBLE_LENGTH_SYMBOLS: int = 32
 
 
 def _generate_preamble(length: int, num_tones: int = 4, seed: int = 0xC05A) -> tuple[int, ...]:
-    """Deterministic PN sequence over ``num_tones``. Same LFSR at every M;
-    just consumes ``log2(num_tones)`` bits per symbol."""
-    bits_per_symbol = num_tones.bit_length() - 1
-    mask = num_tones - 1
+    """Deterministic PN sequence over the mode's symbol alphabet. Same
+    LFSR at every mode; consumes ``bits_per_symbol`` bits per symbol.
+    For OOK (``num_tones=1``) the alphabet is {0, 1}."""
+    bits_per_symbol = _bits_per_symbol(num_tones)
+    mask = _num_symbols(num_tones) - 1
     state = seed & 0xFFFF
     if state == 0:
         state = 1
@@ -78,6 +81,50 @@ def _preamble_for(num_tones: int) -> np.ndarray:
     return np.asarray(
         _generate_preamble(PREAMBLE_LENGTH_SYMBOLS, num_tones=num_tones), dtype=np.int8,
     )
+
+
+@functools.lru_cache(maxsize=8)
+def _preamble_deterministic_sidelobe(num_tones: int) -> float:
+    """Peak-normalised max sidelobe of the correlator run over the
+    preamble sequence at every aperiodic offset ≠ 0, assuming the
+    positions outside the overlap carry balanced random data
+    (mean 0.5 of tone amplitude). Depends only on the fixed PN
+    sequence -- computed once at import time, no fudge factor."""
+    pre = _preamble_for(num_tones).astype(np.int64)
+    length = pre.size
+    max_score = 0.0
+    if num_tones == 1:
+        # OOK correlator: score = (tone_matches - silence_matches) / total.
+        tone_mask = (pre == 1).astype(np.float64)
+        silence_mask = (pre == 0).astype(np.float64)
+        for shift in range(1, length):
+            overlap = length - shift
+            in_overlap = pre[shift:].astype(np.float64)
+            det_num = float(in_overlap @ tone_mask[:overlap] - in_overlap @ silence_mask[:overlap])
+            det_total = float(in_overlap.sum())
+            out_tone = float(tone_mask[overlap:].sum())
+            out_silence = float(silence_mask[overlap:].sum())
+            # Outside overlap: random data at mean amplitude 0.5.
+            numerator = det_num + 0.5 * (out_tone - out_silence)
+            denominator = det_total + 0.5 * (out_tone + out_silence)
+            if denominator > 0:
+                max_score = max(max_score, abs(numerator / denominator))
+        return max_score
+
+    # N-FSK correlator: score = (M * wanted - total) / ((M-1) * total).
+    for shift in range(1, length):
+        magnitudes = np.zeros((length, num_tones), dtype=np.float64)
+        # Positions inside the overlap carry the shifted preamble's tone.
+        overlap = length - shift
+        magnitudes[np.arange(overlap), pre[shift:]] = 1.0
+        # Positions outside the overlap: mean-amplitude across all tones.
+        magnitudes[overlap:] = 1.0 / num_tones
+        wanted = magnitudes[np.arange(length), pre].sum()
+        total = magnitudes.sum()
+        raw = (num_tones * wanted - total) / (num_tones - 1)
+        if total > 0:
+            max_score = max(max_score, abs(raw / total))
+    return max_score
 
 
 # 4-FSK preamble kept as a module constant so tests importing it directly
@@ -530,14 +577,22 @@ def decode(
         slot_end = peaks[slot_i + 1]
         span = slot_end - slot_start
         if abs(span - block_length) > 4:
-            # Bad span: either a spurious mid-message hit (peaks[i+2]
-            # still at the expected stride from peaks[i]) or a real
-            # message boundary. First case: drop the spurious peak
-            # and retry. Second: flush + advance.
+            # Bad span: either a spurious peak (dropping peaks[i+1] leaves
+            # a stride-consistent chain) or a real message boundary.
+            # Peaks[i+1] is spurious when it's off-stride AND ignoring
+            # it lets us reach a stride-consistent successor: any peak
+            # at peaks[i] + K*stride (K >= 1). No such successor means
+            # peaks[i+1] genuinely marks the end of stride-consistent
+            # data -- a real boundary or the tail of the audio buffer.
             spurious = False
-            if slot_i + 2 < len(peaks):
-                two_step = peaks[slot_i + 2] - peaks[slot_i]
-                spurious = abs(two_step - stride) <= 4
+            for j in range(slot_i + 2, len(peaks)):
+                offset_from_anchor = peaks[j] - peaks[slot_i]
+                if offset_from_anchor <= 0:
+                    continue
+                nearest_k = round(offset_from_anchor / stride)
+                if nearest_k >= 1 and abs(offset_from_anchor - nearest_k * stride) <= 4:
+                    spurious = True
+                    break
             if spurious:
                 _log.debug("slot %d: dropping spurious peak %d", slot_i, peaks[slot_i + 1])
                 del peaks[slot_i + 1]
@@ -753,19 +808,28 @@ def _find_preamble_peaks(
     # window; used to amplitude-normalise the raw correlation score.
     total_per_symbol = magnitudes.sum(axis=1)
     windowed_total = np.convolve(total_per_symbol, np.ones(preamble_length), mode="valid")
-    # Vectorised correlator: for each tone k, mask marks where the
-    # preamble expects that tone. Cross-correlate the tone's magnitude
-    # column with the mask; sum contributions across the four tones.
-    # ``wanted[offset]`` = Σ_i magnitudes[offset + i, preamble[i]].
-    wanted = np.zeros(max_offset + 1, dtype=np.float64)
     preamble_int = preamble.astype(np.int64)
     num_tones = magnitudes.shape[1]
-    for tone in range(num_tones):
-        mask = (preamble_int == tone).astype(np.float64)
-        if mask.any():
-            wanted += np.correlate(magnitudes[:, tone], mask, mode="valid")
-    # Old inner-loop math simplifies to: raw = (M * wanted - total) / (M - 1).
-    raw = (num_tones * wanted - windowed_total) / (num_tones - 1)
+
+    if num_tones == 1:
+        # OOK: preamble symbols are {0, 1}. Score = (tone-symbol energy)
+        # minus (silence-symbol energy), normalised by total window
+        # energy. Perfect alignment -> 1.0; noise-only -> ~0.
+        tone_mask = (preamble_int == 1).astype(np.float64)
+        silence_mask = (preamble_int == 0).astype(np.float64)
+        mag_col = magnitudes[:, 0]
+        raw = np.correlate(mag_col, tone_mask, mode="valid") - np.correlate(mag_col, silence_mask, mode="valid")
+    else:
+        # N-FSK: for each tone k, mask marks where the preamble expects
+        # that tone; sum the wanted energy across all N tones.
+        wanted = np.zeros(max_offset + 1, dtype=np.float64)
+        for tone in range(num_tones):
+            mask = (preamble_int == tone).astype(np.float64)
+            if mask.any():
+                wanted += np.correlate(magnitudes[:, tone], mask, mode="valid")
+        # Old inner-loop math simplifies to: raw = (M * wanted - total) / (M - 1).
+        raw = (num_tones * wanted - windowed_total) / (num_tones - 1)
+
     with np.errstate(divide="ignore", invalid="ignore"):
         scores = np.where(windowed_total > 1e-12, raw / windowed_total, 0.0)
 
@@ -773,19 +837,31 @@ def _find_preamble_peaks(
         return []
     peak_score = float(scores.max())
 
-    # Noise floor: bottom (2/M) of scores (adaptive quantile).
-    # At M=2 sidelobes fill the lower half, so we go lower (Q0.25).
-    # At higher M sidelobes are tighter and the lower half is fine.
-    q = max(0.25, 1.0 - 2.0 / num_tones)
-    noise_pool = scores[scores <= float(np.quantile(scores, q))]
+    if num_tones == 1:
+        # OOK scores are symmetric in [-1, 1] -- anti-correlated windows
+        # look as different from a real peak as unrelated noise does. Use
+        # |score| to estimate the spread of the noise / sidelobe cloud
+        # around 0; the top 25% of |scores| is the correlated tail.
+        abs_scores = np.abs(scores)
+        cutoff = float(np.quantile(abs_scores, 0.75))
+        noise_pool = scores[abs_scores <= cutoff]
+    else:
+        # N-FSK noise floor: bottom (2/M) of scores (adaptive quantile).
+        # At M=2 sidelobes fill the lower half, so we go lower (Q0.25).
+        # At higher M sidelobes are tighter and the lower half is fine.
+        q = max(0.25, 1.0 - 2.0 / num_tones)
+        noise_pool = scores[scores <= float(np.quantile(scores, q))]
     if noise_pool.size < 4:
         return []
     noise_centre = float(np.median(noise_pool))
     noise_mad = float(np.median(np.abs(noise_pool - noise_centre)))
     noise_sigma = max(2.0 * 1.4826 * noise_mad, 1e-9)
 
-    # Peak-vs-noise gate.
-    if peak_score < noise_centre + 6.0 * noise_sigma:
+    # Peak-vs-noise gate. OOK's 2-symbol alphabet makes near-matches
+    # unavoidable, so the sigma-based gate would reject valid peaks;
+    # the sidelobe-based threshold below is the only filter we need
+    # for that mode.
+    if num_tones > 1 and peak_score < noise_centre + 6.0 * noise_sigma:
         return []
 
     # Sidelobe-based threshold. In the noise-only limit, correlator
@@ -801,10 +877,22 @@ def _find_preamble_peaks(
     sidelobe_max = math.sqrt(2.0 * math.log(n_positions)) / math.sqrt(
         max(1, num_tones - 1) * preamble_length
     )
-    candidate_threshold = max(
-        noise_centre + 5.0 * noise_sigma,
-        sidelobe_max * peak_score,
-    )
+    # ``sidelobe_max`` (above) is the sqrt(2 ln N) Gaussian-noise bound
+    # -- valid when the correlator's off-peak scores are ~normal noise.
+    # For low-M / short-alphabet modes, the specific PN preamble also
+    # produces deterministic autocorrelation sidelobes above that noise
+    # floor. Compute both, take the larger.
+    det_sidelobe = _preamble_deterministic_sidelobe(num_tones)
+    sidelobe_bound = max(sidelobe_max, det_sidelobe)
+    if num_tones == 1:
+        # OOK sidelobes aren't Gaussian; the sigma floor is unreliable.
+        # Rely purely on the sidelobe-vs-peak bound.
+        candidate_threshold = sidelobe_bound * peak_score
+    else:
+        candidate_threshold = max(
+            noise_centre + 5.0 * noise_sigma,
+            sidelobe_bound * peak_score,
+        )
 
     peaks: list[int] = []
     guard = preamble_length

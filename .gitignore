@@ -31,3 +31,6 @@ log.txt
 *.wav
 
 .claude/
+
+# Benchmark raw-result cache (per-run JSONL for crash safety).
+.benchmark-cache/
