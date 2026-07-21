@@ -152,12 +152,22 @@ def _find_cliff(config: Config, *, trials: int, payload: bytes) -> Result:
     )
 
 
+#: OOK is 1 bit/symbol -- one 45-baud config with block_repeats=8 would
+#: run for hours. Restrict the OOK sweep to bauds and repeat counts
+#: that finish in a reasonable time.
+OOK_BAUDS: tuple[int, ...] = (300, 1200)
+OOK_BLOCK_REPEATS: tuple[int, ...] = (1, 2)
+
+
 def _enumerate_configs() -> list[Config]:
     configs: list[Config] = []
     for baud in BAUDS:
         for rs_data, rs_parity in RS_CONFIGS:
             for block_repeats in BLOCK_REPEATS:
                 for num_tones in NUM_TONES:
+                    if num_tones == 1:
+                        if baud not in OOK_BAUDS or block_repeats not in OOK_BLOCK_REPEATS:
+                            continue
                     cfg = Config(
                         baud=baud,
                         rs_data=rs_data,
