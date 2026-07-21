@@ -154,9 +154,11 @@ Streaming modem. Payload: 100 random-ASCII bytes. Sync every 4 data blocks. Refe
 
 | Baud | Tones | CLI (both tx / rx) | Throughput | Info rate | Best SNR | Shannon | Gap |
 |---:|---:|---|---|---:|---:|---:|---:|
-| 45 | 1 | `--modem-baud 45`<br/>`--modem-num-tones 1`<br/>`--modem-rs-data-bytes 16`<br/>`--modem-rs-parity-bytes 8`<br/>`--modem-block-repeats 4` | 16 chars in 97.4 s | 1.3 bit/s | **-14 dB** | -35.2 dB | 21.2 dB |
-| 300 | 1 | `--modem-baud 300`<br/>`--modem-num-tones 1`<br/>`--modem-rs-data-bytes 16`<br/>`--modem-rs-parity-bytes 8`<br/>`--modem-block-repeats 2` | 16 chars in 7.4 s | 17.4 bit/s | **+11 dB** | -24.0 dB | 35.0 dB |
-| 1200 | 1 | `--modem-baud 1200`<br/>`--modem-num-tones 1`<br/>`--modem-rs-data-bytes 16`<br/>`--modem-rs-parity-bytes 8`<br/>`--modem-block-repeats 2` | 16 chars in 1.8 s | 69.6 bit/s | not reached | -17.9 dB | n/a |
+| 45 | 1 | `--modem-baud 45`<br/>`--modem-num-tones 1`<br/>`--modem-rs-data-bytes 16`<br/>`--modem-rs-parity-bytes 8`<br/>`--modem-block-repeats 4` | 16 chars in 97.4 s<br/><sub>preset</sub> | 1.3 bit/s | **-14 dB** | -35.2 dB | 21.2 dB |
+| 300 | 1 | `--modem-baud 300`<br/>`--modem-num-tones 1`<br/>`--modem-rs-data-bytes 16`<br/>`--modem-rs-parity-bytes 8`<br/>`--modem-block-repeats 2` | 16 chars in 7.4 s<br/><sub>preset</sub> | 17.4 bit/s | **+11 dB** | -24.0 dB | 35.0 dB |
+| 1200 | 1 | `--modem-baud 1200`<br/>`--modem-num-tones 1`<br/>`--modem-rs-data-bytes 16`<br/>`--modem-rs-parity-bytes 8`<br/>`--modem-block-repeats 2` | 16 chars in 1.8 s<br/><sub>preset</sub> | 69.6 bit/s | not reached | -17.9 dB | n/a |
+| 300 | 1 | `--modem-baud 300`<br/>`--modem-num-tones 1`<br/>`--modem-rs-data-bytes 16`<br/>`--modem-rs-parity-bytes 8`<br/>`--modem-block-repeats 4` | 16 chars in 14.6 s<br/><sub>45-baud preset</sub> | 8.8 bit/s | **-6 dB** | -26.9 dB | 20.9 dB |
+| 1200 | 1 | `--modem-baud 1200`<br/>`--modem-num-tones 1`<br/>`--modem-rs-data-bytes 16`<br/>`--modem-rs-parity-bytes 8`<br/>`--modem-block-repeats 4` | 16 chars in 3.7 s<br/><sub>45-baud preset</sub> | 35.0 bit/s | **+17 dB** | -20.9 dB | 37.9 dB |
 
 
 <!-- OOK RESULTS END -->

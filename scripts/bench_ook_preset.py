@@ -28,7 +28,13 @@ OOK_END_MARKER = "<!-- OOK RESULTS END -->"
 
 
 def _preset_ook_configs() -> list[Config]:
-    """One OOK config per supported baud, using that baud's preset."""
+    """OOK configs to measure.
+
+    Rows 1-3: each supported baud with its own preset.
+    Rows 4-5: 300 / 1200 baud with 45 baud's preset (block_repeats=4)
+    -- lets us see how much a Class-E-friendly OOK link can push at
+    higher baud when we spend more redundancy per block.
+    """
     configs: list[Config] = []
     for baud_float, preset in BAUD_PRESETS.items():
         configs.append(
@@ -40,6 +46,21 @@ def _preset_ook_configs() -> list[Config]:
                 num_tones=1,
                 sync_every=int(preset["sync_every_blocks"]),
                 payload_bytes=OOK_PAYLOAD_BYTES,
+                note="preset",
+            )
+        )
+    p45 = BAUD_PRESETS[45.0]
+    for baud in (300, 1200):
+        configs.append(
+            Config(
+                baud=baud,
+                rs_data=int(p45["rs_data_bytes"]),
+                rs_parity=int(p45["rs_parity_bytes"]),
+                block_repeats=int(p45["block_repeats"]),
+                num_tones=1,
+                sync_every=int(p45["sync_every_blocks"]),
+                payload_bytes=OOK_PAYLOAD_BYTES,
+                note="45-baud preset",
             )
         )
     return configs
