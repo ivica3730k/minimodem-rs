@@ -64,7 +64,7 @@ def _add_modem_args(sub: argparse.ArgumentParser) -> None:
         default=None,
         dest="modem_num_tones",
         choices=(1, 2, 4, 8, 16),
-        help="Number of FSK tones. 4 (default) is standard; 8/16 pack "
+        help="Number of MFSK tones. 4 (default) is standard; 8/16 pack "
         "more bits per symbol at wider bandwidth and worse cliff. 2 "
         "halves throughput but fits narrow audio paths. 1 selects OOK "
         "(single carrier, on/off keying) -- narrowest bandwidth of any "
@@ -128,7 +128,7 @@ def _build_parser() -> argparse.ArgumentParser:
     except PackageNotFoundError:
         version = "unknown"
 
-    parser = argparse.ArgumentParser(prog="weaklink-modem", description="Streaming N-FSK modem.")
+    parser = argparse.ArgumentParser(prog="weaklink-modem", description="Streaming MFSK modem.")
     parser.add_argument("--version", action="version", version=f"weaklink-modem {version}")
     subparsers = parser.add_subparsers(dest="direction", required=True)
     tx_parser = subparsers.add_parser("tx", help="Encode stdin bytes and transmit (or write to WAV).")

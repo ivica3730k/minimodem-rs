@@ -102,19 +102,19 @@ in AWGN — the trade you make for the narrow spectrum. Cliff at
 45 baud with `block_repeats=4`: ≈ −14 dB, matching 4-FSK at the same
 settings. See [`results.md`](results.md) for the per-baud numbers.
 
-### One tone at a time (constant envelope, any N)
+### One tone at a time (constant envelope, any M)
 
 Every mode in this modem is **single-tone-at-a-time CPFSK**.
 `--modem-num-tones 16` means "16 possible frequencies to pick from
 per symbol", **not** "16 frequencies playing simultaneously". The
 transmitter emits exactly one sinusoid at any instant, hopping between
 frequencies at the symbol clock. Constant envelope (PAPR = 3 dB, the
-peak-to-RMS of a pure sine) regardless of N.
+peak-to-RMS of a pure sine) regardless of M.
 
 Why single-tone:
 
 - **All transmit power in one tone at a time** — maximum per-symbol SNR, no `1/N` power split across a stack.
-- **Higher N buys log₂(N) bits/symbol** (more throughput) without any PAPR cost. 16-FSK carries 4× the bits of 2-FSK at the same baud, same peak power.
+- **Higher M buys log₂(M) bits/symbol** (more throughput) without any PAPR cost. 16-FSK carries 4× the bits of 2-FSK at the same baud, same peak power.
 
 On an SDR waterfall you'll see all N frequency slots "lit up" during a long transmission — that's the display integrating over time, showing every slot the modem visited. Zoom the FFT window below one symbol duration (~3.3 ms at 300 baud) and you'll see the transmitter chasing one tone across the slots instead.
 
@@ -157,7 +157,7 @@ refresh.
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--modem-baud N` | `300` | Symbol rate. Only `45`, `300`, `1200` supported. |
-| `--modem-num-tones N` | `4` | N-FSK order: 2 / 4 / 8 / 16. Higher packs more bits per symbol at wider bandwidth and worse cliff. 2 halves throughput but fits narrow audio paths (e.g. FM voice via SignaLink). TX and RX must match. |
+| `--modem-num-tones N` | `4` | MFSK order: 2 / 4 / 8 / 16. Higher packs more bits per symbol at wider bandwidth and worse cliff. 2 halves throughput but fits narrow audio paths (e.g. FM voice via SignaLink). TX and RX must match. |
 | `--modem-rs-data-bytes N` | preset | Reed-Solomon data bytes per block. |
 | `--modem-rs-parity-bytes N` | preset | RS parity bytes. Corrects up to N/2 byte errors per block. |
 | `--modem-no-rs-crc` | CRC on | Skip the CRC-32 inside each RS block. |
@@ -221,7 +221,7 @@ One tx session (live audio):
   │ pilot  │ pre │ slot 0 │ pre │ slot 1 │ pre │ ... │slot N-1│ pre │ pilot  │
   └────────┴─────┴────────┴─────┴────────┴─────┴─────┴────────┴─────┴────────┘
 
-One RS block, data area (before conv + interleave + FSK):
+One RS block, data area (before conv + interleave + MFSK):
 
   ┌── 1B ──┬── 2B ────┬──── rs_data − 3 B ────┬── 4B CRC ──┬── rs_parity B ──┐
   │ length │block_idx │ payload (zero-padded) │  CRC-32    │  RS parity      │
@@ -245,10 +245,11 @@ through the same `_StreamingRxPump` the CLI uses.
 
 ## Glossary
 
-- **N-FSK / CPFSK** — Continuous-phase FSK with an **N-value alphabet**: N possible tone frequencies, exactly one on the air at any instant (never a stack). Each symbol picks one → log₂(N) bits/symbol. Default N=4.
+- **MFSK** — M-ary Frequency Shift Keying. M possible tone frequencies; each symbol picks one and emits it → log₂(M) bits/symbol. Exactly one tone on the air at any instant (never a stack). Default M=4.
+- **CPFSK** — Continuous-Phase FSK. Frequency changes between symbols with no phase discontinuity, so the envelope stays clean at symbol boundaries. This modem's MFSK is CPFSK.
 - **Single-tone-at-a-time** — The whole family from OOK through 16-FSK emits at most one sinusoid at any instant. Envelope stays constant (PAPR = 3 dB, same as a pure sine) regardless of `--modem-num-tones`.
 - **OOK** — On-off keying. `num_tones=1` mode: single carrier, symbol 0 = silence, symbol 1 = tone. 1 bit/symbol like 2-FSK but at the narrowest possible bandwidth (only the carrier + modulation sidelobes). Pays a few dB vs 2-FSK in AWGN.
-- **PAPR** — Peak-to-average power ratio. 0 dB = pure DC; 3 dB = pure sine; ~10·log₁₀(N) dB = N tones summed with random phases. This modem stays at 3 dB.
+- **PAPR** — Peak-to-average power ratio. 0 dB = pure DC; 3 dB = pure sine; ~10·log₁₀(M) dB = M tones summed with random phases. This modem stays at 3 dB.
 - **Preamble** — Fixed 32-symbol PN sequence bracketing every slot; RX locks timing / frequency / amplitude from it.
 - **Slot** — Preamble + one RS-encoded block.
 - **Block** — RS-encoded chunk carrying header + payload.
@@ -259,12 +260,12 @@ through the same `_StreamingRxPump` the CLI uses.
 - **Interleaver** — Bit shuffle so bursts become isolated errors. Ours changes every block (32-permutation cycle).
 - **Non-coherent demod** — Tone detection by energy; ~3 dB behind coherent.
 - **LO offset** — Radio frequency error; we correct up to ±500 Hz.
-- **Pilot** — Short random N-FSK burst before / after every live TX.
+- **Pilot** — Short random MFSK burst before / after every live TX.
 - **SNR (dB)** — Signal-to-noise ratio. Negative = noise louder than signal.
 - **AWGN** — Additive white Gaussian noise; the standard clean-channel noise model used by the benchmark.
 - **Shannon limit** — Theoretical lowest SNR at which a given data rate can be decoded error-free. Every FEC decoder sits some dB above it — that gap is what "Gap" columns report.
 - **Best SNR / cliff** — Lowest SNR at which decode still works for a given config. Below it, everything breaks.
-- **Nyquist theorem** — A signal is only recoverable if sampled above twice its highest frequency. In practice: tones must sit below sample_rate/2, and N-FSK tone spacing must be at least `1/T_symbol` for non-coherent orthogonality.
+- **Nyquist theorem** — A signal is only recoverable if sampled above twice its highest frequency. In practice: tones must sit below sample_rate/2, and MFSK tone spacing must be at least `1/T_symbol` for non-coherent orthogonality.
 
 ---
 

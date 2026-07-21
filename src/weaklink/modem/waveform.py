@@ -1,4 +1,4 @@
-"""N-FSK CPFSK modulator + non-coherent soft demodulator.
+"""MFSK CPFSK modulator + non-coherent soft demodulator.
 
 Continuous-phase for narrow spectrum, non-coherent I/Q magnitudes (~3 dB
 worse than coherent but no carrier recovery). Gray-coded symbols so
@@ -25,7 +25,7 @@ NUM_TONES = 4
 def _num_symbols(num_tones: int) -> int:
     """Size of the symbol alphabet. For ``num_tones=1`` we run OOK
     (1 frequency, 2 symbols: silence + tone); otherwise symbols and
-    tones are 1:1 as in standard N-FSK."""
+    tones are 1:1 as in standard MFSK."""
     return 2 if num_tones == 1 else num_tones
 
 
@@ -70,7 +70,7 @@ class WaveformConfig:
     amplitude: float = 0.25
     """Peak amplitude, well under 1.0 to leave headroom in WAV / audio devices."""
     num_tones: int = 4
-    """Number of tone frequencies. Standard N-FSK for values in
+    """Number of tone frequencies. Standard MFSK for values in
     {2, 4, 8, 16}: each tone is one symbol. ``num_tones=1`` selects
     OOK -- one carrier, symbol 0 = silence, symbol 1 = tone --
     which trades throughput for the narrowest bandwidth possible."""
@@ -83,7 +83,7 @@ class WaveformConfig:
     def __post_init__(self) -> None:
         if self.num_tones != 1 and (self.num_tones < 2 or (self.num_tones & (self.num_tones - 1)) != 0):
             raise ConfigError(f"num_tones must be 1 or a power of 2 >= 2, got {self.num_tones}")
-        # OOK sits on a single carrier at ``center_hz``; N-FSK spreads
+        # OOK sits on a single carrier at ``center_hz``; MFSK spreads
         # symmetrically around ``center_hz`` at ``tone_spacing_hz``.
         if self.num_tones == 1:
             relative_offsets: tuple[float, ...] = (0.0,)
@@ -114,7 +114,7 @@ class WaveformConfig:
 
     @property
     def num_symbols(self) -> int:
-        """Symbol-alphabet size. Equals ``num_tones`` for standard N-FSK;
+        """Symbol-alphabet size. Equals ``num_tones`` for standard MFSK;
         equals 2 for OOK (``num_tones=1``)."""
         return _num_symbols(self.num_tones)
 
@@ -142,7 +142,7 @@ def symbols_to_bits(symbols: np.ndarray, num_tones: int = NUM_TONES) -> bytes:
 
 
 def modulate(symbols: np.ndarray, config: WaveformConfig) -> np.ndarray:
-    """Vectorised modulator: continuous-phase N-FSK for ``num_tones >= 2``;
+    """Vectorised modulator: continuous-phase MFSK for ``num_tones >= 2``;
     on-off keying for ``num_tones == 1`` (symbol 0 = silence, symbol 1 =
     continuous-phase sine at the carrier)."""
     samples_per_symbol = config.samples_per_symbol
@@ -164,7 +164,7 @@ def modulate(symbols: np.ndarray, config: WaveformConfig) -> np.ndarray:
         gate = symbols_int.astype(np.float64)[:, None]
         return (config.amplitude * gate * carrier).ravel().astype(np.float32)
 
-    # Standard N-FSK: per-symbol frequency + continuous phase.
+    # Standard MFSK: per-symbol frequency + continuous phase.
     omega_per_symbol = 2.0 * np.pi * np.asarray(config.tones_hz, dtype=np.float64)[symbols_int] * dt
     # Phase at the START of each symbol = 0 for i=0, cumsum(omega*sps) shifted for i>=1.
     end_phases = np.cumsum(omega_per_symbol * samples_per_symbol)

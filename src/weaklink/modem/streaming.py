@@ -29,7 +29,7 @@ _log = logging.getLogger("weaklink.streaming")
 
 
 def pilot_signal(config: ModemConfig, duration_seconds: float) -> np.ndarray:
-    """Random N-FSK symbols for ``duration_seconds``. All tones exercised
+    """Random MFSK symbols for ``duration_seconds``. All tones exercised
     uniformly so the coarse-offset FFT locks cleanly."""
     symbols_needed = max(1, int(round(duration_seconds * config.waveform.baud)))
     rng = np.random.default_rng(0xC0DE)

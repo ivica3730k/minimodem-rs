@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "weaklink-modem"
 version = "0.0.0"
-description = "N-FSK streaming modem for HF SSB and wider channels: Reed-Solomon framing, soft Viterbi, round-robin block repetition, byte-pipe semantics."
+description = "MFSK streaming modem for HF SSB and wider channels: Reed-Solomon framing, soft Viterbi, round-robin block repetition, byte-pipe semantics."
 authors = ["ivica3730k"]
 license = "MIT"
 readme = "readme-pypi.md"

@@ -24,7 +24,7 @@ BAUD_PRESETS: dict[float, dict[str, float]] = {
 
 #: Pilot padding on each side of live-tx: brings the audio sink out
 #: of its IDLE state (~50 ms of wake-up latency) and gives the
-#: coarse-offset FFT real N-FSK tone energy to lock onto.
+#: coarse-offset FFT real MFSK tone energy to lock onto.
 LIVE_TX_PILOT_MIN_SECONDS: float = 0.2
 
 #: Pilot must also exceed the preamble in symbol space so back-to-back

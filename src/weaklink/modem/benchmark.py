@@ -119,7 +119,7 @@ def _find_cliff(config: Config, *, trials: int, payload: bytes) -> Result:
     shannon = shannon_snr_db(info_rate)
 
     cliff: float | None = None
-    # OOK's cliff sits ~10 dB higher than N-FSK, so the sweep needs a
+    # OOK's cliff sits ~10 dB higher than MFSK, so the sweep needs a
     # higher starting SNR to see it. Everything else still starts at
     # +10 dB, matching the previous behaviour.
     snr_db = 25.0 if config.num_tones == 1 else 10.0

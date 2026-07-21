@@ -111,7 +111,7 @@ def _preamble_deterministic_sidelobe(num_tones: int) -> float:
                 max_score = max(max_score, abs(numerator / denominator))
         return max_score
 
-    # N-FSK correlator: score = (M * wanted - total) / ((M-1) * total).
+    # MFSK correlator: score = (M * wanted - total) / ((M-1) * total).
     for shift in range(1, length):
         magnitudes = np.zeros((length, num_tones), dtype=np.float64)
         # Positions inside the overlap carry the shifted preamble's tone.
@@ -820,7 +820,7 @@ def _find_preamble_peaks(
         mag_col = magnitudes[:, 0]
         raw = np.correlate(mag_col, tone_mask, mode="valid") - np.correlate(mag_col, silence_mask, mode="valid")
     else:
-        # N-FSK: for each tone k, mask marks where the preamble expects
+        # MFSK: for each tone k, mask marks where the preamble expects
         # that tone; sum the wanted energy across all N tones.
         wanted = np.zeros(max_offset + 1, dtype=np.float64)
         for tone in range(num_tones):
@@ -846,7 +846,7 @@ def _find_preamble_peaks(
         cutoff = float(np.quantile(abs_scores, 0.75))
         noise_pool = scores[abs_scores <= cutoff]
     else:
-        # N-FSK noise floor: bottom (2/M) of scores (adaptive quantile).
+        # MFSK noise floor: bottom (2/M) of scores (adaptive quantile).
         # At M=2 sidelobes fill the lower half, so we go lower (Q0.25).
         # At higher M sidelobes are tighter and the lower half is fine.
         q = max(0.25, 1.0 - 2.0 / num_tones)

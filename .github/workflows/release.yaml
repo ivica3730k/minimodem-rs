@@ -216,7 +216,7 @@ jobs:
           fpm -s dir -t deb \
             -n weaklink-modem \
             -v "${{ steps.ver.outputs.version }}" \
-            --description "Streaming N-FSK digital modem: bytes-to-audio-and-back byte pipe." \
+            --description "Streaming MFSK digital modem: bytes-to-audio-and-back byte pipe." \
             --maintainer "Ivica <ivica.matic@groupnexus.co.uk>" \
             --depends libportaudio2 \
             --depends libsndfile1 \
@@ -289,7 +289,7 @@ jobs:
           fpm -s dir -t deb \
             -n weaklink-modem \
             -v "${{ steps.ver.outputs.version }}" \
-            --description "Streaming N-FSK digital modem: bytes-to-audio-and-back byte pipe." \
+            --description "Streaming MFSK digital modem: bytes-to-audio-and-back byte pipe." \
             --maintainer "Ivica <ivica.matic@groupnexus.co.uk>" \
             --depends libportaudio2 \
             --depends libsndfile1 \

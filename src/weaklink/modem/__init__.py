@@ -1,4 +1,4 @@
-"""Weaklink modem: N-FSK + convolutional FEC + soft Viterbi, audio I/O."""
+"""Weaklink modem: MFSK + convolutional FEC + soft Viterbi, audio I/O."""
 
 from weaklink.modem.api import ModemOptions, build_config, rx, tx
 from weaklink.modem.codec import ModemConfig

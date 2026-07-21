@@ -18,7 +18,7 @@ class ConfigError(WeaklinkError):
 
 
 class NyquistError(ConfigError):
-    """N-FSK tone stack won't fit under sample_rate/2, or spacing is
+    """MFSK tone stack won't fit under sample_rate/2, or spacing is
     below the non-coherent orthogonality floor."""
 
 
