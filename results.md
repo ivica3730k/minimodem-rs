@@ -145,3 +145,18 @@ Streaming modem. Payload: 100 random-ASCII bytes. Sync every 4 data blocks. Refe
 | 1200 | 8 | `--modem-baud 1200`<br/>`--modem-num-tones 8`<br/>`--modem-rs-data-bytes 128`<br/>`--modem-rs-parity-bytes 32`<br/>`--modem-block-repeats 8` | 100 chars in 6.5 s | 123.1 bit/s | **+1 dB** | -15.4 dB | 16.4 dB |
 
 <!-- BENCHMARK RESULTS END -->
+
+<!-- OOK RESULTS START -->
+
+## OOK / 1-tone (preset per baud, 16-byte payload)
+
+Streaming modem. Payload: 100 random-ASCII bytes. Sync every 4 data blocks. Reference bandwidth: 3 kHz.
+
+| Baud | Tones | CLI (both tx / rx) | Throughput | Info rate | Best SNR | Shannon | Gap |
+|---:|---:|---|---|---:|---:|---:|---:|
+| 45 | 1 | `--modem-baud 45`<br/>`--modem-num-tones 1`<br/>`--modem-rs-data-bytes 16`<br/>`--modem-rs-parity-bytes 8`<br/>`--modem-block-repeats 4` | 16 chars in 97.4 s | 1.3 bit/s | **-14 dB** | -35.2 dB | 21.2 dB |
+| 300 | 1 | `--modem-baud 300`<br/>`--modem-num-tones 1`<br/>`--modem-rs-data-bytes 16`<br/>`--modem-rs-parity-bytes 8`<br/>`--modem-block-repeats 2` | 16 chars in 7.4 s | 17.4 bit/s | **+11 dB** | -24.0 dB | 35.0 dB |
+| 1200 | 1 | `--modem-baud 1200`<br/>`--modem-num-tones 1`<br/>`--modem-rs-data-bytes 16`<br/>`--modem-rs-parity-bytes 8`<br/>`--modem-block-repeats 2` | 16 chars in 1.8 s | 69.6 bit/s | not reached | -17.9 dB | n/a |
+
+
+<!-- OOK RESULTS END -->

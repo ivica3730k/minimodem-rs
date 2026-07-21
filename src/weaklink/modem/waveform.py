@@ -302,12 +302,17 @@ def soft_bits_from_magnitudes(magnitudes_sq: np.ndarray, num_tones: int = NUM_TO
         return np.zeros(0, dtype=np.float64)
 
     if num_tones == 1:
-        # OOK: single magnitude column. Threshold adaptively at the
-        # per-frame median (a robust noise-floor estimate) and emit
-        # LLR = threshold - magnitude -- positive for silence (bit 0),
-        # negative for tone (bit 1).
+        # OOK: single magnitude column. Estimate the noise floor from
+        # the lowest quintile of magnitudes and the tone level from the
+        # highest; threshold at their midpoint. This holds up when the
+        # block's bit distribution is skewed (e.g. lots of zero-padding
+        # in the payload area), which a plain median-threshold would
+        # collapse. LLR = threshold - magnitude, positive for silence
+        # (bit 0), negative for tone (bit 1).
         column = magnitudes_sq[:, 0]
-        threshold = float(np.median(column))
+        noise_est = float(np.percentile(column, 20))
+        tone_est = float(np.percentile(column, 80))
+        threshold = 0.5 * (noise_est + tone_est)
         return (threshold - column).astype(np.float64)
 
     _, bit_masks = _gray_tables(num_tones)  # (num_tones, bits_per_symbol)
