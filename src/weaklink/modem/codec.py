@@ -26,6 +26,8 @@ from weaklink.modem.interleaver import (
 from weaklink.modem.rs import BlockConfig, RSBlockCodec
 from weaklink.modem.waveform import (
     WaveformConfig,
+    _bits_per_symbol,
+    _num_symbols,
     bits_to_symbols,
     demodulate_soft,
     estimate_coarse_frequency_offset,
@@ -54,10 +56,11 @@ PREAMBLE_LENGTH_SYMBOLS: int = 32
 
 
 def _generate_preamble(length: int, num_tones: int = 4, seed: int = 0xC05A) -> tuple[int, ...]:
-    """Deterministic PN sequence over ``num_tones``. Same LFSR at every M;
-    just consumes ``log2(num_tones)`` bits per symbol."""
-    bits_per_symbol = num_tones.bit_length() - 1
-    mask = num_tones - 1
+    """Deterministic PN sequence over the mode's symbol alphabet. Same
+    LFSR at every mode; consumes ``bits_per_symbol`` bits per symbol.
+    For OOK (``num_tones=1``) the alphabet is {0, 1}."""
+    bits_per_symbol = _bits_per_symbol(num_tones)
+    mask = _num_symbols(num_tones) - 1
     state = seed & 0xFFFF
     if state == 0:
         state = 1
@@ -753,19 +756,28 @@ def _find_preamble_peaks(
     # window; used to amplitude-normalise the raw correlation score.
     total_per_symbol = magnitudes.sum(axis=1)
     windowed_total = np.convolve(total_per_symbol, np.ones(preamble_length), mode="valid")
-    # Vectorised correlator: for each tone k, mask marks where the
-    # preamble expects that tone. Cross-correlate the tone's magnitude
-    # column with the mask; sum contributions across the four tones.
-    # ``wanted[offset]`` = Σ_i magnitudes[offset + i, preamble[i]].
-    wanted = np.zeros(max_offset + 1, dtype=np.float64)
     preamble_int = preamble.astype(np.int64)
     num_tones = magnitudes.shape[1]
-    for tone in range(num_tones):
-        mask = (preamble_int == tone).astype(np.float64)
-        if mask.any():
-            wanted += np.correlate(magnitudes[:, tone], mask, mode="valid")
-    # Old inner-loop math simplifies to: raw = (M * wanted - total) / (M - 1).
-    raw = (num_tones * wanted - windowed_total) / (num_tones - 1)
+
+    if num_tones == 1:
+        # OOK: preamble symbols are {0, 1}. Score = (tone-symbol energy)
+        # minus (silence-symbol energy), normalised by total window
+        # energy. Perfect alignment -> 1.0; noise-only -> ~0.
+        tone_mask = (preamble_int == 1).astype(np.float64)
+        silence_mask = (preamble_int == 0).astype(np.float64)
+        mag_col = magnitudes[:, 0]
+        raw = np.correlate(mag_col, tone_mask, mode="valid") - np.correlate(mag_col, silence_mask, mode="valid")
+    else:
+        # N-FSK: for each tone k, mask marks where the preamble expects
+        # that tone; sum the wanted energy across all N tones.
+        wanted = np.zeros(max_offset + 1, dtype=np.float64)
+        for tone in range(num_tones):
+            mask = (preamble_int == tone).astype(np.float64)
+            if mask.any():
+                wanted += np.correlate(magnitudes[:, tone], mask, mode="valid")
+        # Old inner-loop math simplifies to: raw = (M * wanted - total) / (M - 1).
+        raw = (num_tones * wanted - windowed_total) / (num_tones - 1)
+
     with np.errstate(divide="ignore", invalid="ignore"):
         scores = np.where(windowed_total > 1e-12, raw / windowed_total, 0.0)
 
@@ -773,19 +785,31 @@ def _find_preamble_peaks(
         return []
     peak_score = float(scores.max())
 
-    # Noise floor: bottom (2/M) of scores (adaptive quantile).
-    # At M=2 sidelobes fill the lower half, so we go lower (Q0.25).
-    # At higher M sidelobes are tighter and the lower half is fine.
-    q = max(0.25, 1.0 - 2.0 / num_tones)
-    noise_pool = scores[scores <= float(np.quantile(scores, q))]
+    if num_tones == 1:
+        # OOK scores are symmetric in [-1, 1] -- anti-correlated windows
+        # look as different from a real peak as unrelated noise does. Use
+        # |score| to estimate the spread of the noise / sidelobe cloud
+        # around 0; the top 25% of |scores| is the correlated tail.
+        abs_scores = np.abs(scores)
+        cutoff = float(np.quantile(abs_scores, 0.75))
+        noise_pool = scores[abs_scores <= cutoff]
+    else:
+        # N-FSK noise floor: bottom (2/M) of scores (adaptive quantile).
+        # At M=2 sidelobes fill the lower half, so we go lower (Q0.25).
+        # At higher M sidelobes are tighter and the lower half is fine.
+        q = max(0.25, 1.0 - 2.0 / num_tones)
+        noise_pool = scores[scores <= float(np.quantile(scores, q))]
     if noise_pool.size < 4:
         return []
     noise_centre = float(np.median(noise_pool))
     noise_mad = float(np.median(np.abs(noise_pool - noise_centre)))
     noise_sigma = max(2.0 * 1.4826 * noise_mad, 1e-9)
 
-    # Peak-vs-noise gate.
-    if peak_score < noise_centre + 6.0 * noise_sigma:
+    # Peak-vs-noise gate. OOK's 2-symbol alphabet makes near-matches
+    # unavoidable, so the sigma-based gate would reject valid peaks;
+    # the sidelobe-based threshold below is the only filter we need
+    # for that mode.
+    if num_tones > 1 and peak_score < noise_centre + 6.0 * noise_sigma:
         return []
 
     # Sidelobe-based threshold. In the noise-only limit, correlator
@@ -801,10 +825,15 @@ def _find_preamble_peaks(
     sidelobe_max = math.sqrt(2.0 * math.log(n_positions)) / math.sqrt(
         max(1, num_tones - 1) * preamble_length
     )
-    candidate_threshold = max(
-        noise_centre + 5.0 * noise_sigma,
-        sidelobe_max * peak_score,
-    )
+    if num_tones == 1:
+        # OOK sidelobes dominate over Gaussian noise, so the sigma-based
+        # floor is unreliable; use the sidelobe-based threshold alone.
+        candidate_threshold = sidelobe_max * peak_score
+    else:
+        candidate_threshold = max(
+            noise_centre + 5.0 * noise_sigma,
+            sidelobe_max * peak_score,
+        )
 
     peaks: list[int] = []
     guard = preamble_length

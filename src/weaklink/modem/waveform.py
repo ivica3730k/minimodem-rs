@@ -22,21 +22,34 @@ BITS_PER_SYMBOL = 2
 NUM_TONES = 4
 
 
+def _num_symbols(num_tones: int) -> int:
+    """Size of the symbol alphabet. For ``num_tones=1`` we run OOK
+    (1 frequency, 2 symbols: silence + tone); otherwise symbols and
+    tones are 1:1 as in standard N-FSK."""
+    return 2 if num_tones == 1 else num_tones
+
+
+def _bits_per_symbol(num_tones: int) -> int:
+    return _num_symbols(num_tones).bit_length() - 1
+
+
 @functools.lru_cache(maxsize=8)
 def _gray_tables(num_tones: int) -> tuple[np.ndarray, np.ndarray]:
     """Binary-to-Gray tables sized for ``num_tones``. ``bits_to_symbol``
-    maps a binary index → its Gray-coded tone index; ``symbol_to_bits``
-    is the inverse."""
-    if num_tones < 2 or (num_tones & (num_tones - 1)) != 0:
-        raise ConfigError(f"num_tones must be a power of 2 >= 2, got {num_tones}")
-    bits_per_symbol = num_tones.bit_length() - 1
-    bits_to_symbol = np.empty(num_tones, dtype=np.int8)
-    symbol_to_bits = np.empty((num_tones, bits_per_symbol), dtype=np.int8)
-    for i in range(num_tones):
+    maps a binary index → its Gray-coded symbol index; ``symbol_to_bits``
+    is the inverse. For ``num_tones=1`` the tables are the 2-symbol
+    identity (OOK: 1 bit ↔ 1 symbol)."""
+    if num_tones != 1 and (num_tones < 2 or (num_tones & (num_tones - 1)) != 0):
+        raise ConfigError(f"num_tones must be 1 or a power of 2 >= 2, got {num_tones}")
+    n_syms = _num_symbols(num_tones)
+    bits_per_symbol = n_syms.bit_length() - 1
+    bits_to_symbol = np.empty(n_syms, dtype=np.int8)
+    symbol_to_bits = np.empty((n_syms, bits_per_symbol), dtype=np.int8)
+    for i in range(n_syms):
         gray = i ^ (i >> 1)
         bits_to_symbol[i] = gray
         # ``symbol_to_bits[gray]`` inverts the mapping: given the received
-        # tone ``gray``, recover the original ``i`` -- its bits are what
+        # symbol ``gray``, recover the original ``i`` -- its bits are what
         # the transmitter packed. We index by ``gray`` and store bits of ``i``.
         for b in range(bits_per_symbol):
             symbol_to_bits[gray, b] = (i >> (bits_per_symbol - 1 - b)) & 1
@@ -57,8 +70,10 @@ class WaveformConfig:
     amplitude: float = 0.25
     """Peak amplitude, well under 1.0 to leave headroom in WAV / audio devices."""
     num_tones: int = 4
-    """4 (default) or 8. 8-FSK carries 3 bits/symbol vs 2 for 4-FSK --
-    higher throughput at the same baud, at ~1--2 dB SNR penalty."""
+    """Number of tone frequencies. Standard N-FSK for values in
+    {2, 4, 8, 16}: each tone is one symbol. ``num_tones=1`` selects
+    OOK -- one carrier, symbol 0 = silence, symbol 1 = tone --
+    which trades throughput for the narrowest bandwidth possible."""
 
     tones_hz: tuple[float, ...] = field(init=False)
 
@@ -66,12 +81,17 @@ class WaveformConfig:
     """Guardrail: no tone allowed below this frequency."""
 
     def __post_init__(self) -> None:
-        if self.num_tones < 2 or (self.num_tones & (self.num_tones - 1)) != 0:
-            raise ConfigError(f"num_tones must be a power of 2 >= 2, got {self.num_tones}")
-        mean_offset = (self.num_tones - 1) / 2.0
-        relative_offsets = tuple(
-            (i - mean_offset) * self.tone_spacing_hz for i in range(self.num_tones)
-        )
+        if self.num_tones != 1 and (self.num_tones < 2 or (self.num_tones & (self.num_tones - 1)) != 0):
+            raise ConfigError(f"num_tones must be 1 or a power of 2 >= 2, got {self.num_tones}")
+        # OOK sits on a single carrier at ``center_hz``; N-FSK spreads
+        # symmetrically around ``center_hz`` at ``tone_spacing_hz``.
+        if self.num_tones == 1:
+            relative_offsets: tuple[float, ...] = (0.0,)
+        else:
+            mean_offset = (self.num_tones - 1) / 2.0
+            relative_offsets = tuple(
+                (i - mean_offset) * self.tone_spacing_hz for i in range(self.num_tones)
+            )
         raw_min = self.center_hz + min(relative_offsets)
         if raw_min < self.MIN_TONE_HZ:
             shift = self.MIN_TONE_HZ - raw_min
@@ -93,13 +113,19 @@ class WaveformConfig:
         return int(round(self.sample_rate / self.baud))
 
     @property
+    def num_symbols(self) -> int:
+        """Symbol-alphabet size. Equals ``num_tones`` for standard N-FSK;
+        equals 2 for OOK (``num_tones=1``)."""
+        return _num_symbols(self.num_tones)
+
+    @property
     def bits_per_symbol(self) -> int:
-        return self.num_tones.bit_length() - 1
+        return _bits_per_symbol(self.num_tones)
 
 
 def bits_to_symbols(bits: bytes, num_tones: int = NUM_TONES) -> np.ndarray:
-    """Pack a 0/1 bit stream into N-FSK symbol indices."""
-    bits_per_symbol = num_tones.bit_length() - 1
+    """Pack a 0/1 bit stream into symbol indices."""
+    bits_per_symbol = _bits_per_symbol(num_tones)
     if len(bits) % bits_per_symbol != 0:
         raise ValueError(f"bit count {len(bits)} not a multiple of {bits_per_symbol}")
     packed = np.frombuffer(bits, dtype=np.int8).reshape(-1, bits_per_symbol)
@@ -116,23 +142,38 @@ def symbols_to_bits(symbols: np.ndarray, num_tones: int = NUM_TONES) -> bytes:
 
 
 def modulate(symbols: np.ndarray, config: WaveformConfig) -> np.ndarray:
-    """CPFSK modulator: float32 samples in [-A, A]. Vectorised via
-    cumulative-phase cumsum + broadcast; no Python loop over symbols."""
+    """Vectorised modulator: continuous-phase N-FSK for ``num_tones >= 2``;
+    on-off keying for ``num_tones == 1`` (symbol 0 = silence, symbol 1 =
+    continuous-phase sine at the carrier)."""
     samples_per_symbol = config.samples_per_symbol
     if len(symbols) == 0:
         return np.zeros(0, dtype=np.float32)
     dt = 1.0 / config.sample_rate
-    omega = 2.0 * np.pi * np.asarray(config.tones_hz, dtype=np.float64)[
-        np.asarray(symbols, dtype=np.int64)
-    ] * dt
+    symbols_int = np.asarray(symbols, dtype=np.int64)
+
+    if config.num_tones == 1:
+        # OOK. Keep the carrier phase running continuously (even during
+        # off symbols) so on-symbols never produce a phase discontinuity
+        # -- narrower spectrum, no glitches at bit boundaries.
+        omega = 2.0 * np.pi * config.tones_hz[0] * dt
+        n_offsets = np.arange(1, samples_per_symbol + 1, dtype=np.float64)
+        num_symbols = symbols_int.shape[0]
+        start_index = np.arange(num_symbols, dtype=np.int64) * samples_per_symbol
+        phases = omega * (start_index[:, None] + n_offsets[None, :])
+        carrier = np.sin(phases)
+        gate = symbols_int.astype(np.float64)[:, None]
+        return (config.amplitude * gate * carrier).ravel().astype(np.float32)
+
+    # Standard N-FSK: per-symbol frequency + continuous phase.
+    omega_per_symbol = 2.0 * np.pi * np.asarray(config.tones_hz, dtype=np.float64)[symbols_int] * dt
     # Phase at the START of each symbol = 0 for i=0, cumsum(omega*sps) shifted for i>=1.
-    end_phases = np.cumsum(omega * samples_per_symbol)
+    end_phases = np.cumsum(omega_per_symbol * samples_per_symbol)
     start_phases = np.empty_like(end_phases)
     start_phases[0] = 0.0
     start_phases[1:] = end_phases[:-1]
     # phases[i, n] = start_phases[i] + omega[i] * (n + 1), n = 0..sps-1.
     n_offsets = np.arange(1, samples_per_symbol + 1, dtype=np.float64)
-    phases = start_phases[:, None] + omega[:, None] * n_offsets[None, :]
+    phases = start_phases[:, None] + omega_per_symbol[:, None] * n_offsets[None, :]
     return (config.amplitude * np.sin(phases).ravel()).astype(np.float32)
 
 
@@ -228,10 +269,17 @@ def estimate_frequency_offset(
     )
     best_offset = prior_offset_hz
     best_score = -np.inf
+    is_ook = config.num_tones == 1
     for offset in offsets:
         total_correct_energy = 0.0
         for position, symbol in enumerate(expected_symbols):
-            freq = config.tones_hz[int(symbol)] + offset
+            symbol_int = int(symbol)
+            # OOK: only tone-symbols (== 1) contribute; silence-symbols
+            # have no reference frequency to align to.
+            if is_ook and symbol_int == 0:
+                continue
+            tone_index = 0 if is_ook else symbol_int
+            freq = config.tones_hz[tone_index] + offset
             cos_wave = np.cos(2.0 * np.pi * freq * time_axis)
             sin_wave = np.sin(2.0 * np.pi * freq * time_axis)
             in_phase = windowed[position] @ cos_wave
@@ -249,13 +297,22 @@ def soft_bits_from_magnitudes(magnitudes_sq: np.ndarray, num_tones: int = NUM_TO
     Returns a 1-D array of length ``bits_per_symbol * num_symbols``.
     Positive → bit is more likely 0; negative → more likely 1.
     """
-    num_symbols = magnitudes_sq.shape[0]
-    if num_symbols == 0:
+    num_symbols_seen = magnitudes_sq.shape[0]
+    if num_symbols_seen == 0:
         return np.zeros(0, dtype=np.float64)
 
+    if num_tones == 1:
+        # OOK: single magnitude column. Threshold adaptively at the
+        # per-frame median (a robust noise-floor estimate) and emit
+        # LLR = threshold - magnitude -- positive for silence (bit 0),
+        # negative for tone (bit 1).
+        column = magnitudes_sq[:, 0]
+        threshold = float(np.median(column))
+        return (threshold - column).astype(np.float64)
+
     _, bit_masks = _gray_tables(num_tones)  # (num_tones, bits_per_symbol)
-    bits_per_symbol = num_tones.bit_length() - 1
-    llrs = np.empty((num_symbols, bits_per_symbol), dtype=np.float64)
+    bits_per_symbol = _bits_per_symbol(num_tones)
+    llrs = np.empty((num_symbols_seen, bits_per_symbol), dtype=np.float64)
     for bit_position in range(bits_per_symbol):
         zero_symbols = np.where(bit_masks[:, bit_position] == 0)[0]
         one_symbols = np.where(bit_masks[:, bit_position] == 1)[0]

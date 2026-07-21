@@ -63,11 +63,12 @@ def _add_modem_args(sub: argparse.ArgumentParser) -> None:
         type=int,
         default=None,
         dest="modem_num_tones",
-        choices=(2, 4, 8, 16),
-        help="Number of FSK tones (power of 2). 4 (default) is standard; "
-        "8/16 pack more bits per symbol at wider bandwidth and worse "
-        "cliff. 2 halves throughput but fits narrow audio paths. TX / RX "
-        "must match.",
+        choices=(1, 2, 4, 8, 16),
+        help="Number of FSK tones. 4 (default) is standard; 8/16 pack "
+        "more bits per symbol at wider bandwidth and worse cliff. 2 "
+        "halves throughput but fits narrow audio paths. 1 selects OOK "
+        "(single carrier, on/off keying) -- narrowest bandwidth of any "
+        "mode, still 1 bit per symbol. TX / RX must match.",
     )
     modem.add_argument(
         "--modem-block-repeats",

@@ -35,11 +35,14 @@ README_START_MARKER = "<!-- BENCHMARK RESULTS START -->"
 README_END_MARKER = "<!-- BENCHMARK RESULTS END -->"
 
 PAYLOAD_BYTES: int = 100
+#: OOK (1 tone) carries 1 bit per symbol -- 100 bytes takes ~10x the air
+#: time of 4-FSK at the same baud. Cap it lower so the sweep finishes.
+OOK_PAYLOAD_BYTES: int = 16
 PAYLOAD_SEED: int = 0
 BAUDS: tuple[int, ...] = (45, 300, 1200)
 RS_CONFIGS: tuple[tuple[int, int], ...] = ((16, 8), (32, 8), (128, 32))
 BLOCK_REPEATS: tuple[int, ...] = (1, 2, 4, 8)
-NUM_TONES: tuple[int, ...] = (2, 4, 8, 16)
+NUM_TONES: tuple[int, ...] = (1, 2, 4, 8, 16)
 SYNC_EVERY_FIXED: int = 4
 
 
@@ -161,6 +164,7 @@ def _enumerate_configs() -> list[Config]:
                         rs_parity=rs_parity,
                         block_repeats=block_repeats,
                         num_tones=num_tones,
+                        payload_bytes=OOK_PAYLOAD_BYTES if num_tones == 1 else PAYLOAD_BYTES,
                     )
                     # Skip Nyquist-infeasible combos (e.g. 300 baud x 32 tones
                     # needs 9.3 kHz of tone stack, our 18 kHz internal rate
