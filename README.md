@@ -111,37 +111,6 @@ transmitter emits exactly one sinusoid at any instant, hopping between
 frequencies at the symbol clock. Constant envelope (PAPR = 3 dB, the
 peak-to-RMS of a pure sine) regardless of N.
 
-Time-frequency view of a 4-FSK burst — each column is one symbol,
-each row is one of the 4 available frequencies:
-
-```
-freq
- ↑
- F₃ │  .  ▓  .  .  .  ▓  .  .
- F₂ │  .  .  .  ▓  .  .  .  .
- F₁ │  ▓  .  .  .  .  .  ▓  .
- F₀ │  .  .  ▓  .  ▓  .  .  ▓
-    └────────────────────────→ time
-      s₀ s₁ s₂ s₃ s₄ s₅ s₆ s₇
-
-Exactly one ▓ per column: at any instant, one tone at full amplitude.
-Over 8 symbols the modem has visited all 4 slots (that's what you see
-on an SDR waterfall over time), but never more than one at once.
-```
-
-vs. what parallel multi-tone (OFDM-style; **not** this modem) would do:
-
-```
-freq
- ↑
- F₃ │  ▓  .  ▓  ▓  .  ▓  .  ▓
- F₂ │  .  ▓  ▓  .  ▓  .  ▓  ▓   Multiple ▓ per column: N tones
- F₁ │  ▓  ▓  .  ▓  .  ▓  ▓  .   summed at each instant. PAPR grows
- F₀ │  ▓  .  ▓  .  ▓  ▓  .  ▓   with N (~10·log₁₀(N)).
-    └────────────────────────→ time
-      s₀ s₁ s₂ s₃ s₄ s₅ s₆ s₇
-```
-
 Why single-tone:
 
 - **All transmit power in one tone at a time** — maximum per-symbol SNR, no `1/N` power split across a stack.
