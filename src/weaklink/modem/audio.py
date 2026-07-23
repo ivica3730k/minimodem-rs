@@ -10,6 +10,7 @@ import logging
 import os
 import shutil
 import subprocess
+import sys
 import threading
 from dataclasses import dataclass
 from pathlib import Path
@@ -205,11 +206,72 @@ def resolve_audio_target(name_hint: str | None, *, kind: str) -> AudioTarget:
     return AudioTarget()
 
 
+def _set_unity_gain(target: AudioTarget, *, kind: str) -> None:
+    """Best-effort: set the resolved endpoint to unity gain (100% / 0 dB)
+    and unmute before the stream opens. Failures are logged at DEBUG and
+    swallowed -- the modem still runs at whatever gain the OS had set.
+
+    Pulse targets pin the named sink/source. sounddevice targets on Linux
+    fall back to ``@DEFAULT_{SINK,SOURCE}@`` since PortAudio's Pulse compat
+    routes there. macOS uses osascript on the system default -- CoreAudio
+    has no per-device shell surface.
+    """
+    if target.pulse_name is not None:
+        _pactl_set_unity(target.pulse_name, kind=kind)
+        return
+    if sys.platform == "darwin":
+        _osascript_set_unity(kind=kind)
+        return
+    if sys.platform.startswith("linux"):
+        _pactl_set_unity("@DEFAULT_SOURCE@" if kind == "input" else "@DEFAULT_SINK@", kind=kind)
+
+
+def _pactl_set_unity(endpoint: str, *, kind: str) -> None:
+    if not shutil.which("pactl"):
+        _log.debug("pactl not on PATH; skipping unity-gain set for %s %s", kind, endpoint)
+        return
+    vol_cmd = "set-source-volume" if kind == "input" else "set-sink-volume"
+    mute_cmd = "set-source-mute" if kind == "input" else "set-sink-mute"
+    for args in ([vol_cmd, endpoint, "100%"], [mute_cmd, endpoint, "0"]):
+        try:
+            subprocess.run(
+                ["pactl", *args], check=True, timeout=2.0, capture_output=True,
+            )
+        except (subprocess.SubprocessError, OSError) as exc:
+            _log.debug("pactl %s failed for %s: %s", args[0], endpoint, exc)
+            return
+    _log.debug("pactl: %s set to unity + unmuted", endpoint)
+
+
+def _osascript_set_unity(*, kind: str) -> None:
+    if not shutil.which("osascript"):
+        _log.debug("osascript not on PATH; skipping unity-gain set")
+        return
+    # ``input volume`` needs a two-step (set volume + unmute) since setting
+    # to 0 mutes; setting to 100 unmutes implicitly. Output has an explicit
+    # ``muted`` field.
+    scripts = (
+        ["set volume input volume 100"]
+        if kind == "input"
+        else ["set volume output volume 100", "set volume output muted false"]
+    )
+    for script in scripts:
+        try:
+            subprocess.run(
+                ["osascript", "-e", script], check=True, timeout=2.0, capture_output=True,
+            )
+        except (subprocess.SubprocessError, OSError) as exc:
+            _log.debug("osascript %r failed: %s", script, exc)
+            return
+    _log.debug("osascript: system %s volume set to unity + unmuted", kind)
+
+
 def play(samples: np.ndarray, sample_rate: float, *, device: str | None = None) -> None:
     """Play ``samples`` blocking, through ``device`` (index / substring / Pulse
     sink) or the OS default."""
     hint = device if device else os.environ.get("PULSE_SINK")
     target = resolve_audio_target(hint, kind="output")
+    _set_unity_gain(target, kind="output")
     samples_f32 = np.asarray(samples, dtype=np.float32).reshape(-1)
     rate = int(round(sample_rate))
 
@@ -254,6 +316,7 @@ def play_stream(
     OutputStream and ``.write`` chunk by chunk."""
     hint = device if device else os.environ.get("PULSE_SINK")
     target = resolve_audio_target(hint, kind="output")
+    _set_unity_gain(target, kind="output")
     rate = int(round(sample_rate))
     if target.pulse_name is not None:
         _play_pulse_stream(sample_chunks, rate, target.pulse_name)
@@ -331,6 +394,7 @@ class LiveInputStream:
         self._stop_event = threading.Event()
 
     def __enter__(self) -> "LiveInputStream":
+        _set_unity_gain(self._target, kind="input")
         if self._target.pulse_name is not None:
             self._open_parec()
         else:
